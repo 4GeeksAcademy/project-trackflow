@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://trackflow.com/sitemap.xml
+
+# LLM discovery
+# https://llmstxt.org/
+# https://trackflow.com/llms.txt
+# https://trackflow.com/llms-full.txt
+# https://trackflow.com/.well-known/llms.txt
+# https://trackflow.com/ai-context.json
+# https://trackflow.com/.well-known/ai-context.json

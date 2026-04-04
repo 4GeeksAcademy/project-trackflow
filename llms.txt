@@ -1,0 +1,28 @@
+# TrackFlow
+
+TrackFlow is a logistics provider for e-commerce operations in the United States and Spain.
+
+## Primary language
+- English is the primary/default language.
+- Spanish is available under /es/.
+
+## Main pages
+- Home (EN): https://trackflow.com/index.html
+- Application form (EN): https://trackflow.com/application.html
+- Privacy policy (EN): https://trackflow.com/privacy.html
+- Home (ES): https://trackflow.com/es/index.html
+- Application form (ES): https://trackflow.com/es/application.html
+- Privacy policy (ES): https://trackflow.com/es/privacy.html
+
+## Structured discovery
+- Sitemap: https://trackflow.com/sitemap.xml
+- Robots: https://trackflow.com/robots.txt
+- Full AI details: https://trackflow.com/llms-full.txt
+- JSON AI context: https://trackflow.com/ai-context.json
+- Well-known llms: https://trackflow.com/.well-known/llms.txt
+- Well-known AI context: https://trackflow.com/.well-known/ai-context.json
+
+## Organization
+- Name: TrackFlow
+- Website: https://trackflow.com
+- Contact: comercial@trackflow.com

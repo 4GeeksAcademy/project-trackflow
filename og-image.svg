@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="TrackFlow social preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ecfdf5" />
+      <stop offset="100%" stop-color="#f8fafc" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect x="72" y="72" width="1056" height="486" rx="24" fill="#ffffff" stroke="#e2e8f0" stroke-width="4" />
+  <text x="120" y="220" font-family="Segoe UI, Arial, sans-serif" font-size="76" font-weight="700" fill="#0f172a">TrackFlow</text>
+  <text x="120" y="300" font-family="Segoe UI, Arial, sans-serif" font-size="42" fill="#334155">E-commerce logistics in US and Spain</text>
+  <text x="120" y="380" font-family="Segoe UI, Arial, sans-serif" font-size="34" fill="#047857">Warehouse • Last-mile • Reverse logistics</text>
+  <rect x="120" y="430" width="320" height="72" rx="12" fill="#047857" />
+  <text x="160" y="476" font-family="Segoe UI, Arial, sans-serif" font-size="32" fill="#ffffff">trackflow.com</text>
+</svg>

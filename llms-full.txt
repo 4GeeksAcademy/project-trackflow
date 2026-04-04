@@ -1,0 +1,105 @@
+# TrackFlow - Complete AI Context
+
+## Company Snapshot
+- Name: TrackFlow
+- Founded: 2009
+- Markets: United States (Los Angeles), Spain (Zaragoza)
+- Team size: 130+ professionals
+- Annual revenue context: ~9 million EUR
+- Focus: E-commerce logistics
+- Core verticals: Fashion, Electronics, Cosmetics
+- Contact email: comercial@trackflow.com
+- Contact phone (US): +1 213 555 0147
+- Contact phone (ES): +34 976 123 456
+
+## Service Catalog
+1. Warehouse Management
+- Storage, picking, and packing
+- Real-time inventory
+- Warehouses in Los Angeles and Zaragoza
+
+2. Last-Mile Deliveries
+- Certified carrier network in both countries
+- Unified shipment tracking
+- Incident and returns management
+
+3. Reverse Logistics
+- End-to-end returns management
+- Inspection and reconditioning
+- Platform integration support
+
+## Audience and Qualification
+- Primary audience: Mid-sized e-commerce companies evaluating outsourced logistics
+- Exclusion: End consumers tracking parcels or personal returns
+- Commercial warning rule: If monthly volume is 0-100 shipments and product type is selected, display warning that the service may be inefficient for that volume.
+
+## Language and Routing
+- Primary/default language: English
+- Secondary language: Spanish
+- English pages:
+  - https://trackflow.com/index.html
+  - https://trackflow.com/application.html
+  - https://trackflow.com/privacy.html
+- Spanish pages:
+  - https://trackflow.com/es/index.html
+  - https://trackflow.com/es/application.html
+  - https://trackflow.com/es/privacy.html
+
+## Landing Page Structure
+- Header: TrackFlow + navigation
+- Hero: Logistics positioning and CTA to application form
+- Services: 3-column service summary
+- Coverage: US and Spain coverage blocks
+- Why TrackFlow: 4 trust/value propositions
+- Contact: Commercial channels
+- Footer: Copyright + LinkedIn + policy
+
+## Application Form Model
+Fields and required status:
+- Company name (required, min 2 chars)
+- Contact person (required, must include first + last name)
+- Corporate email (required, valid email)
+- Phone (required, starts with + and country code)
+- Company website (optional, valid URL if provided)
+- Main operating country (required select)
+- Product type (required select)
+- Estimated monthly shipping volume (required select)
+- Services of interest (required, at least one checkbox)
+- Current 3PL relationship (required radio)
+- Comments (optional, max 500 chars + counter)
+- Privacy policy acceptance (required checkbox)
+
+## Validation Message Contract
+- Company name: Company name must have at least 2 characters
+- Contact person: Enter first and last name of contact
+- Email: Enter a valid corporate email (example: <name@company.com>)
+- Phone: Phone must include country code (example: +1 213 555 0147)
+- Website: If you include website, it must be a valid URL
+- Country: Select main operating country
+- Product type: Select the type of product you handle
+- Monthly volume: Select estimated monthly volume
+- Services: Select at least one service of interest
+- Current 3PL: Indicate if you currently work with another logistics provider
+- Comments: Comments cannot exceed 500 characters (X remaining)
+- Privacy policy: You must accept the privacy policy to continue
+
+## Submission Outcome
+Success response text:
+- Thank you for your interest in TrackFlow.
+- Request received and review within 24-48 hours.
+- Urgent contact: comercial@trackflow.com.
+
+## SEO and Discovery
+- Robots: https://trackflow.com/robots.txt
+- Sitemap: https://trackflow.com/sitemap.xml
+- LLM summary index: https://trackflow.com/llms.txt
+- LLM full index: https://trackflow.com/llms-full.txt
+- Well-known pointer: https://trackflow.com/.well-known/llms.txt
+
+## Structured Data
+- WebSite
+- WebPage
+- Organization
+- FAQPage (landing)
+- BreadcrumbList (application)
+- Locale mapping: en-US and es-ES via hreflang and schema inLanguage fields

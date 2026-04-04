@@ -1,0 +1,86 @@
+{
+  "site": {
+    "name": "TrackFlow",
+    "url": "https://trackflow.com",
+    "defaultLanguage": "en-US",
+    "supportedLanguages": ["en-US", "es-ES"],
+    "discovery": {
+      "robots": "https://trackflow.com/robots.txt",
+      "sitemap": "https://trackflow.com/sitemap.xml",
+      "llms": "https://trackflow.com/llms.txt",
+      "llmsFull": "https://trackflow.com/llms-full.txt",
+      "llmsWellKnown": "https://trackflow.com/.well-known/llms.txt"
+    }
+  },
+  "company": {
+    "founded": 2009,
+    "markets": [
+      {"country": "US", "city": "Los Angeles"},
+      {"country": "ES", "city": "Zaragoza"}
+    ],
+    "teamSize": "130+",
+    "focus": "E-commerce logistics",
+    "verticals": ["Fashion", "Electronics", "Cosmetics"],
+    "contact": {
+      "email": "comercial@trackflow.com",
+      "phoneUS": "+1 213 555 0147",
+      "phoneES": "+34 976 123 456"
+    }
+  },
+  "pages": {
+    "en": {
+      "home": "/index.html",
+      "application": "/application.html",
+      "privacy": "/privacy.html"
+    },
+    "es": {
+      "home": "/es/index.html",
+      "application": "/es/application.html",
+      "privacy": "/es/privacy.html"
+    }
+  },
+  "services": [
+    {
+      "name": "Warehouse Management",
+      "features": [
+        "Storage, picking and packing",
+        "Real-time inventory",
+        "Warehouses in Los Angeles and Zaragoza"
+      ]
+    },
+    {
+      "name": "Last-Mile Deliveries",
+      "features": [
+        "Certified carrier network in both countries",
+        "Unified shipment tracking",
+        "Incident and returns management"
+      ]
+    },
+    {
+      "name": "Reverse Logistics",
+      "features": [
+        "Complete returns management",
+        "Inspection and reconditioning",
+        "Integration with sales platforms"
+      ]
+    }
+  ],
+  "form": {
+    "audience": "B2B e-commerce companies outsourcing logistics",
+    "fields": [
+      {"id": "companyName", "required": true, "validation": "minLength:2"},
+      {"id": "contactPerson", "required": true, "validation": "atLeastTwoWords"},
+      {"id": "corporateEmail", "required": true, "validation": "email"},
+      {"id": "phone", "required": true, "validation": "startsWithPlusCountryCode"},
+      {"id": "companyWebsite", "required": false, "validation": "urlIfProvided"},
+      {"id": "mainCountry", "required": true, "validation": "select"},
+      {"id": "productType", "required": true, "validation": "select"},
+      {"id": "monthlyVolume", "required": true, "validation": "select"},
+      {"id": "services", "required": true, "validation": "atLeastOneCheckbox"},
+      {"id": "current3pl", "required": true, "validation": "radioSelected"},
+      {"id": "comments", "required": false, "validation": "maxLength:500"},
+      {"id": "privacyPolicy", "required": true, "validation": "mustBeChecked"}
+    ],
+    "warningRule": "If monthlyVolume is 0-100 and productType is selected, show low volume warning."
+  }
+}

@@ -1,0 +1,241 @@
+:root {
+  --art-bg: #0e0e10;
+  --art-bg-soft: #17171c;
+  --art-surface: #1f1f25;
+  --art-surface-2: #272730;
+  --art-white-soft: #f7f7fa;
+  --art-white: #ffffff;
+  --art-text: #f3f3f5;
+  --art-muted: #b9bcc5;
+  --art-accent: #0ea76d;
+  --art-accent-strong: #10c983;
+  --art-accent-soft: #7af5c8;
+  --art-line: #3a3a46;
+  --art-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+html,
+body {
+  background: var(--art-bg);
+  color: var(--art-text);
+  font-family: "Manrope", "Space Grotesk", "IBM Plex Sans", "Avenir Next", sans-serif;
+  letter-spacing: 0.002em;
+}
+
+header,
+footer {
+  background: linear-gradient(130deg, #141419 0%, #1a1a21 100%) !important;
+  border-color: var(--art-line) !important;
+}
+
+main {
+  padding-bottom: 1.5rem;
+}
+
+main > section {
+  border: 1px solid var(--art-line);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(247, 247, 250, 0.1) 0%, rgba(255, 255, 255, 0.04) 16%, var(--art-bg-soft) 42%, var(--art-surface) 100%) !important;
+  box-shadow: var(--art-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+main > section::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(16, 201, 131, 0.12), transparent 35%, rgba(14, 167, 109, 0.08));
+  pointer-events: none;
+}
+
+main > section > * {
+  position: relative;
+  z-index: 1;
+}
+
+article,
+fieldset,
+form > div,
+form > section,
+form > fieldset,
+form > .rounded-xl,
+main .rounded-xl,
+main .rounded-lg {
+  border-color: var(--art-line) !important;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.1) 0%, var(--art-surface) 30%, var(--art-surface-2) 100%) !important;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.28);
+}
+
+article[aria-label*="TrackFlow"] {
+  background: #059669 !important;
+  border-color: rgba(52, 211, 153, 0.78) !important;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Sora", "Manrope", sans-serif;
+  color: var(--art-white) !important;
+  letter-spacing: 0.015em;
+  line-height: 1.18;
+}
+
+h1 {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+}
+
+h2 {
+  font-size: clamp(1.45rem, 2.4vw, 2.2rem);
+}
+
+p,
+li,
+label,
+span,
+small,
+legend {
+  color: var(--art-muted) !important;
+  line-height: 1.62;
+}
+
+a {
+  color: var(--art-accent-soft);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  color: #c7ffe8;
+}
+
+.bg-white,
+.bg-slate-50,
+.bg-slate-900,
+.from-emerald-50,
+.via-white,
+.to-slate-50 {
+  background: transparent !important;
+}
+
+.text-slate-900,
+.text-slate-700,
+.text-slate-600,
+.text-white {
+  color: var(--art-white-soft) !important;
+}
+
+.text-emerald-700,
+.hover\:text-emerald-700:hover,
+.hover\:text-emerald-800:hover {
+  color: var(--art-accent-soft) !important;
+}
+
+.bg-emerald-700,
+.hover\:bg-emerald-800:hover {
+  background: linear-gradient(135deg, var(--art-accent), var(--art-accent-strong)) !important;
+}
+
+.bg-white {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+button,
+[role="button"],
+.inline-flex,
+a.inline-flex {
+  border-color: var(--art-line);
+}
+
+input,
+select,
+textarea {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.08), #101217) !important;
+  color: #f4f5f7 !important;
+  border-color: #474a56 !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #8f95a3 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--art-accent-strong) !important;
+  box-shadow: 0 0 0 2px rgba(16, 201, 131, 0.35) !important;
+}
+
+#formStatus,
+#lowVolumeWarning {
+  border-color: var(--art-line) !important;
+}
+
+#lowVolumeWarning {
+  background: rgba(16, 201, 131, 0.14) !important;
+  color: #e6fff5 !important;
+}
+
+footer a {
+  color: var(--art-accent-soft) !important;
+}
+
+@media (max-width: 1024px) {
+  main > section {
+    border-radius: 14px;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    background: var(--art-bg-soft) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  }
+
+  article,
+  fieldset,
+  form > div,
+  form > section,
+  form > fieldset,
+  form > .rounded-xl,
+  main .rounded-xl,
+  main .rounded-lg {
+    background: var(--art-surface) !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.16);
+  }
+}
+
+@media (max-width: 640px) {
+  main {
+    padding-bottom: 1rem;
+  }
+
+  main > section {
+    margin: 0.75rem 0.35rem;
+    border-radius: 12px;
+  }
+
+  .grid {
+    gap: 0.9rem;
+  }
+
+  h1 {
+    letter-spacing: 0.01em;
+  }
+}
+
+@media (max-width: 767px) {
+  body.has-mobile-bottom-nav {
+    padding-bottom: calc(7.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    border-top-width: 1px;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.24);
+  }
+}
