@@ -90,7 +90,7 @@
             "@type": "PostalAddress",
             "addressCountry": "ES",
             "addressLocality": "Zaragoza",
-            "addressRegion": "Arag\u00f3n"
+            "addressRegion": "Aragón"
           }
         ],
         "contactPoint": {
@@ -337,6 +337,16 @@
         </div>
       </div>
     </footer>
+
+    <section style="padding: 2rem 1rem; max-width: 72rem; margin: 0 auto;">
+      <h2>TrackFlow Browser Demo</h2>
+      <pre
+        id="trackflow-output"
+        style="white-space: pre-wrap; background: #f8fafc; border: 1px solid #cbd5e1; padding: 1rem; border-radius: 0.5rem; overflow-x: auto;"
+      ></pre>
+    </section>
+    <script type="module" src="./dist-browser/browser-demo.js"></script>
+
     <script>
       if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
