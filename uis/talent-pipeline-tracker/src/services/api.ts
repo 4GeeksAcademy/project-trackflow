@@ -36,9 +36,35 @@ export async function apiFetch<T>(
     body = null;
   }
   if (!res.ok) {
-    let message = 'Unknown error';
-    if (body && body.message) message = body.message;
-    throw new Error(message);
+    let message = `HTTP ${res.status} ${res.statusText}`;
+    let responseText = '';
+    try {
+      responseText = await res.clone().text();
+    } catch {
+      responseText = '[Could not read response text]';
+    }
+    if (body && body.message) message += `: ${body.message}`;
+    else if (responseText) message += `: ${responseText}`;
+    const errorObj = {
+      status: res.status,
+      statusText: res.statusText,
+      url,
+      responseText,
+      body,
+    };
+    if (typeof window !== 'undefined') {
+      console.error('[apiFetch] ERROR', errorObj);
+    }
+    const error = new Error(message);
+    // @ts-expect-error Assigning custom property to Error object for status
+    error.status = res.status;
+    // @ts-expect-error Assigning custom property to Error object for statusText
+    error.statusText = res.statusText;
+    // @ts-expect-error Assigning custom property to Error object for responseText
+    error.responseText = responseText;
+    // @ts-expect-error Assigning custom property to Error object for body
+    error.body = body;
+    throw error;
   }
   return body;
 }

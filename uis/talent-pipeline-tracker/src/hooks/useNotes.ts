@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getNotes, addNote, deleteNote } from '../services/notes';
 import type { Note, NoteCreate } from '../types/note';
 
-export function useNotes(recordId: number) {
+export function useNotes(recordId: string) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

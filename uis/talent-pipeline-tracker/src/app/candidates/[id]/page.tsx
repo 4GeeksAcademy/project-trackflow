@@ -18,7 +18,7 @@ import type { Status, Stage } from '../../../types/candidate';
 
 export default function CandidateDetailPage() {
   const params = useParams();
-  const id = Number(params?.id);
+  const id = params?.id as string;
   const { candidate, loading, error, refresh, editCandidate, patchStatusStage } = useCandidate(id);
   const { notes, loading: notesLoading, error: notesError, refresh: refreshNotes, createNote, removeNote } = useNotes(id);
   const [editMode, setEditMode] = useState(false);

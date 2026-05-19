@@ -20,7 +20,7 @@ export async function getCandidates(params?: Record<string, string | number | un
   return apiFetch<CandidatesResponse>(`/records${query}`);
 }
 
-export async function getCandidate(id: number) {
+export async function getCandidate(id: string) {
   return apiFetch<Candidate>(`/records/${id}`);
 }
 
@@ -31,14 +31,14 @@ export async function createCandidate(data: RecordCreate) {
   });
 }
 
-export async function updateCandidate(id: number, data: RecordCreate) {
+export async function updateCandidate(id: string, data: RecordCreate) {
   return apiFetch<Candidate>(`/records/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
 }
 
-export async function patchCandidate(id: number, data: RecordPatch) {
+export async function patchCandidate(id: string, data: RecordPatch) {
   return apiFetch<Candidate>(`/records/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
