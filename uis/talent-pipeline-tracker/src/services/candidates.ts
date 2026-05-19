@@ -1,5 +1,13 @@
+
 import { apiFetch } from './api';
 import type { Candidate, RecordCreate, RecordPatch } from '../types/candidate';
+
+export type CandidatesResponse = {
+  total: number;
+  page: number;
+  limit: number;
+  data: Candidate[];
+};
 
 export async function getCandidates(params?: Record<string, string | number | undefined>) {
   const query = params
@@ -9,7 +17,7 @@ export async function getCandidates(params?: Record<string, string | number | un
           .map(([k, v]) => [k, String(v)])
       )
     : '';
-  return apiFetch<Candidate[]>(`/records${query}`);
+  return apiFetch<CandidatesResponse>(`/records${query}`);
 }
 
 export async function getCandidate(id: number) {
