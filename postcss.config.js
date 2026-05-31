@@ -1,6 +1,5 @@
 module.exports = {
   plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
+    // No Tailwind or PostCSS plugins for website/backoffice
   },
 }
