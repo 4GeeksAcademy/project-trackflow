@@ -14,6 +14,7 @@ if PROJECT_ROOT not in sys.path:
 
 from shared.incident_analysis.analyzer import analyze_csv
 from shared.incident_analysis.exporter import export_results_to_csv
+from services.api.routes.suppliers import router as suppliers_router
 
 
 app = FastAPI(title="TrackFlow Incident Analyzer API")
@@ -27,6 +28,8 @@ app.add_middleware(
 )
 
 LAST_RESULTS = None
+
+app.include_router(suppliers_router)
 
 
 @app.get("/")
@@ -69,4 +72,4 @@ def export_results():
         output_path,
         media_type="text/csv",
         filename="trackflow-results.csv",
-    )
+    )    
