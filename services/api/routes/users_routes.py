@@ -35,6 +35,7 @@ def read_user(user_id: int):
     return user
 
 
+@router.put("/{user_id}")
 @router.patch("/{user_id}")
 def patch_user(user_id: int, payload: UserUpdate):
     user = update_user(user_id, payload.model_dump(exclude_unset=True))
