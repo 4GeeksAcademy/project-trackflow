@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,6 +15,9 @@ if PROJECT_ROOT not in sys.path:
 from shared.incident_analysis.analyzer import analyze_csv
 from shared.incident_analysis.exporter import export_results_to_csv
 from services.api.routes.suppliers import router as suppliers_router
+from services.api.routes.auth_routes import router as auth_router
+from services.api.routes.users_routes import router as users_router
+from services.api.auth import get_current_user
 
 
 app = FastAPI(title="TrackFlow Incident Analyzer API")
@@ -29,6 +32,8 @@ app.add_middleware(
 
 LAST_RESULTS = None
 
+app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(suppliers_router)
 
 
@@ -37,7 +42,7 @@ def health_check():
     return {"status": "ok", "service": "TrackFlow Incident Analyzer API"}
 
 
-@app.post("/api/incidents/analyze")
+@app.post("/api/incidents/analyze", dependencies=[Depends(get_current_user)])
 async def analyze_incidents(file: UploadFile = File(...)):
     global LAST_RESULTS
 
@@ -60,7 +65,7 @@ async def analyze_incidents(file: UploadFile = File(...)):
             os.remove(temp_path)
 
 
-@app.get("/api/incidents/results/export")
+@app.get("/api/incidents/results/export", dependencies=[Depends(get_current_user)])
 def export_results():
     if LAST_RESULTS is None:
         raise HTTPException(status_code=404, detail="No analysis results available.")

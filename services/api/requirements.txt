@@ -4,3 +4,7 @@ python-multipart
 tinydb
 
 email-validator
+python-jose[cryptography]
+passlib[bcrypt]
+
+bcrypt<5

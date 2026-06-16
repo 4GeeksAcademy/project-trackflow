@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from services.api.database import suppliers_table
 from services.api.models import RateUpdate, StatusUpdate, Supplier, SupplierCreate
+from services.api.auth import get_current_user
 
-router = APIRouter(prefix="/suppliers", tags=["suppliers"])
+router = APIRouter(prefix="/suppliers", tags=["suppliers"], dependencies=[Depends(get_current_user)])
 
 
 def with_id(document):
