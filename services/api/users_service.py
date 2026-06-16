@@ -21,6 +21,7 @@ def create_user(email: str, password: str) -> dict:
         raise ValueError("Email already registered")
 
     user_data = {
+        "name": "",
         "email": email,
         "hashed_password": hash_password(password),
         "is_active": True,
@@ -65,6 +66,9 @@ def update_user(user_id: int, data: dict) -> dict | None:
         return None
 
     update_data = {}
+
+    if "name" in data and data["name"] is not None:
+        update_data["name"] = data["name"]
 
     if "email" in data and data["email"] is not None:
         update_data["email"] = data["email"]

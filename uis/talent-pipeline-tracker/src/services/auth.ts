@@ -4,6 +4,7 @@ export const TOKEN_KEY = 'trackflow_token';
 
 export type AuthUser = {
   id: number;
+  name?: string;
   email: string;
   is_active?: boolean;
 };
@@ -45,6 +46,13 @@ export async function register(email: string, password: string) {
 
 export async function getCurrentUser() {
   return apiFetch<AuthUser>('/auth/me');
+}
+
+export async function updateProfile(userId: number, data: { name: string; email: string }) {
+  return apiFetch<AuthUser>(`/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function changePassword(userId: number, password: string) {

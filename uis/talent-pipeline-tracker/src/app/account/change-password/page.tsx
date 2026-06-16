@@ -12,6 +12,7 @@ export default function ChangePasswordPage() {
   const router = useRouter();
   const { checkingAuth } = useRequireAuth();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -28,11 +29,13 @@ export default function ChangePasswordPage() {
     setSuccess('');
 
     if (!user) return setError('User not loaded yet.');
+    if (!currentPassword) return setError('Current password is required.');
     if (password !== confirm) return setError('Passwords do not match.');
 
     setLoading(true);
     try {
       await changePassword(user.id, password);
+      setCurrentPassword('');
       setPassword('');
       setConfirm('');
       setSuccess('Password updated successfully.');
@@ -55,6 +58,7 @@ export default function ChangePasswordPage() {
         {error && <p className="text-red-600 text-sm">{error}</p>}
         {success && <p className="text-green-600 text-sm">{success}</p>}
 
+        <Input type="password" placeholder="Current password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required className="w-full" />
         <Input type="password" placeholder="New password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full" />
         <Input type="password" placeholder="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required className="w-full" />
 

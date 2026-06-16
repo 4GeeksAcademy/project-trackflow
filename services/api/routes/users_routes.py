@@ -13,6 +13,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 class UserUpdate(BaseModel):
+    name: str | None = None
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=6)
     is_active: bool | None = None
