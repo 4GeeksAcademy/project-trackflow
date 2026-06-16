@@ -9,11 +9,7 @@ from services.api.users_service import (
     update_user,
 )
 
-router = APIRouter(
-    prefix="/users",
-    tags=["users"],
-    dependencies=[Depends(get_current_user)],
-)
+router = APIRouter(prefix="/users", tags=["users"])
 
 
 class UserUpdate(BaseModel):
@@ -22,13 +18,20 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
 
 
+def require_owner(user_id: int, current_user: dict):
+    if current_user["id"] != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @router.get("/")
-def read_users():
+def read_users(current_user: dict = Depends(get_current_user)):
     return list_users()
 
 
 @router.get("/{user_id}")
-def read_user(user_id: int):
+def read_user(user_id: int, current_user: dict = Depends(get_current_user)):
+    require_owner(user_id, current_user)
+
     user = get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -37,7 +40,13 @@ def read_user(user_id: int):
 
 @router.put("/{user_id}")
 @router.patch("/{user_id}")
-def patch_user(user_id: int, payload: UserUpdate):
+def patch_user(
+    user_id: int,
+    payload: UserUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    require_owner(user_id, current_user)
+
     user = update_user(user_id, payload.model_dump(exclude_unset=True))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -45,7 +54,9 @@ def patch_user(user_id: int, payload: UserUpdate):
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_user(user_id: int):
+def remove_user(user_id: int, current_user: dict = Depends(get_current_user)):
+    require_owner(user_id, current_user)
+
     deleted = delete_user(user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="User not found")
