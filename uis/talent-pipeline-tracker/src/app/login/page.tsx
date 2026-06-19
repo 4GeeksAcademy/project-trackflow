@@ -57,13 +57,23 @@ export default function LoginPage() {
           {loading ? 'Logging in...' : 'Login'}
         </Button>
 
-        <button
-          type="button"
-          className="text-blue-700 underline text-sm"
-          onClick={() => router.push('/register')}
-        >
-          Create an account
-        </button>
+        <div className="flex items-center justify-between text-sm">
+          <button
+            type="button"
+            className="text-blue-700 underline"
+            onClick={() => router.push('/register')}
+          >
+            Create an account
+          </button>
+
+          <button
+            type="button"
+            className="text-blue-700 underline"
+            onClick={() => router.push('/forgot-password')}
+          >
+            Forgot your password?
+          </button>
+        </div>
       </form>
     </main>
   );
