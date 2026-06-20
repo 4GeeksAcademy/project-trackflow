@@ -5,6 +5,28 @@ function getStoredToken() {
   return localStorage.getItem('trackflow_token');
 }
 
+function getErrorMessage(body: unknown, status: number, statusText: string) {
+  if (
+    body &&
+    typeof body === 'object' &&
+    'detail' in body &&
+    typeof body.detail === 'string'
+  ) {
+    return body.detail;
+  }
+
+  if (
+    body &&
+    typeof body === 'object' &&
+    'message' in body &&
+    typeof body.message === 'string'
+  ) {
+    return body.message;
+  }
+
+  return `HTTP ${status} ${statusText}`;
+}
+
 export async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -27,7 +49,7 @@ export async function apiFetch<T>(
     headers,
   });
 
-  let body = null;
+  let body: unknown = null;
 
   try {
     body = await res.clone().json();
@@ -44,10 +66,7 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    const message =
-      body?.detail ||
-      body?.message ||
-      `HTTP ${res.status} ${res.statusText}`;
+    const message = getErrorMessage(body, res.status, res.statusText);
 
     const error = new Error(message);
     // @ts-expect-error custom status
@@ -57,5 +76,5 @@ export async function apiFetch<T>(
     throw error;
   }
 
-  return body;
+  return body as T;
 }
