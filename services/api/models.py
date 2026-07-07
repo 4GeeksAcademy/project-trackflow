@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from sqlmodel import Field as SQLField
+from sqlmodel import Relationship, SQLModel
 
 
 VALID_CATEGORIES = [
@@ -60,14 +62,10 @@ class RateUpdate(BaseModel):
 class StatusUpdate(BaseModel):
     status: Literal["active", "suspended"]
 
-# ============================================================
-# Incident Models
-# ============================================================
 
 class IncidentBase(BaseModel):
     title: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
-
     category: Literal[
         "lost_parcel",
         "delivery_failure",
@@ -79,20 +77,8 @@ class IncidentBase(BaseModel):
         "client_complaint",
         "other",
     ]
-
-    status: Literal[
-        "open",
-        "in_progress",
-        "resolved",
-        "discarded",
-    ]
-
-    origin: Literal[
-        "customer",
-        "branch",
-        "internal",
-    ]
-
+    status: Literal["open", "in_progress", "resolved", "discarded"]
+    origin: Literal["customer", "branch", "internal"]
     branch: Literal[
         "central",
         "la_warehouse",
@@ -113,10 +99,41 @@ class Incident(IncidentBase):
 
 
 class IncidentStatusUpdate(BaseModel):
-    status: Literal[
-        "open",
-        "in_progress",
-        "resolved",
-        "discarded",
-    ]
+    status: Literal["open", "in_progress", "resolved", "discarded"]
 
+
+class SKU(SQLModel, table=True):
+    id: int | None = SQLField(default=None, primary_key=True)
+    name: str
+    sku: str
+    client_name: str
+    category: str
+    warehouse: str
+
+    stock_entries: list["StockEntry"] = Relationship(back_populates="sku_item")
+    stock_exits: list["StockExit"] = Relationship(back_populates="sku_item")
+
+
+class StockEntry(SQLModel, table=True):
+    id: int | None = SQLField(default=None, primary_key=True)
+    sku_id: int = SQLField(foreign_key="sku.id")
+    quantity: int
+    reference: str
+    warehouse: str
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    user_uuid: str
+
+    sku_item: SKU | None = Relationship(back_populates="stock_entries")
+
+
+class StockExit(SQLModel, table=True):
+    id: int | None = SQLField(default=None, primary_key=True)
+    sku_id: int = SQLField(foreign_key="sku.id")
+    quantity: int
+    exit_type: str
+    tracking_number: str | None = None
+    warehouse: str
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    user_uuid: str
+
+    sku_item: SKU | None = Relationship(back_populates="stock_exits")
