@@ -59,3 +59,64 @@ class RateUpdate(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: Literal["active", "suspended"]
+
+# ============================================================
+# Incident Models
+# ============================================================
+
+class IncidentBase(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+
+    category: Literal[
+        "lost_parcel",
+        "delivery_failure",
+        "inventory_discrepancy",
+        "carrier_issue",
+        "returns_issue",
+        "warehouse_incident",
+        "system_failure",
+        "client_complaint",
+        "other",
+    ]
+
+    status: Literal[
+        "open",
+        "in_progress",
+        "resolved",
+        "discarded",
+    ]
+
+    origin: Literal[
+        "customer",
+        "branch",
+        "internal",
+    ]
+
+    branch: Literal[
+        "central",
+        "la_warehouse",
+        "la_office",
+        "zaragoza_warehouse",
+        "zaragoza_office",
+    ]
+
+
+class IncidentCreate(IncidentBase):
+    pass
+
+
+class Incident(IncidentBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class IncidentStatusUpdate(BaseModel):
+    status: Literal[
+        "open",
+        "in_progress",
+        "resolved",
+        "discarded",
+    ]
+

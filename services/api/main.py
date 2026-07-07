@@ -16,6 +16,7 @@ from shared.incident_analysis.analyzer import analyze_csv
 from shared.incident_analysis.exporter import export_results_to_csv
 from services.api.auth import get_current_user
 from services.api.routes.auth_routes import router as auth_router
+from services.api.routes.incidents import router as incidents_router
 from services.api.routes.suppliers import router as suppliers_router
 from services.api.routes.users_routes import router as users_router
 
@@ -34,6 +35,7 @@ LAST_RESULTS = None
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(suppliers_router)
+app.include_router(incidents_router)
 
 
 @app.get("/")
