@@ -1104,3 +1104,13 @@ The pipeline does not write back into the telemetry source.
 - [x] Reporting endpoints are separate from telemetry endpoints.
 - [x] The status and manual-trigger endpoints identify the pipeline functions they call.
 - [x] No ETL logic is placed in the service layer.
+
+## Script Execution
+
+Run the weekly business performance pipeline from the repository root:
+
+```bash
+python data/pipelines/pipeline.py
+```
+
+The default execution processes the previous completed ISO week. The intended production schedule is every Monday morning in UTC.
