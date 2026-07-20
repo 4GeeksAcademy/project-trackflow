@@ -515,49 +515,108 @@ def fail_pipeline_run_log(
         session.commit()
 
 
-def execute_weekly_pipeline(
-    requested_week_start: date | str | None,
-    trigger_type: str,
+@flow(name="extract_weekly_warehouse_client_events_flow")
+def extract_weekly_warehouse_client_events_flow(
+    interval_start: datetime,
+    interval_end: datetime,
 ) -> dict[str, Any]:
+    """Extract TrackFlow business events for one completed ISO week."""
+
+    return extract_weekly_business_events(
+        interval_start,
+        interval_end,
+    )
+
+
+@flow(name="transform_weekly_warehouse_client_performance_flow")
+def transform_weekly_warehouse_client_performance_flow(
+    extraction: dict[str, Any],
+    week_start: date,
+) -> dict[str, Any]:
+    """
+    Validate, deduplicate, aggregate, and verify the four TrackFlow KPIs.
+    """
+
+    transformed = deduplicate_and_validate_events(
+        extraction
+    )
+
+    aggregated = aggregate_weekly_warehouse_client_metrics(
+        transformed,
+        week_start,
+    )
+
+    validated = validate_weekly_metrics(aggregated)
+
+    return {
+        "transformed": transformed,
+        "performance_rows": validated,
+    }
+
+
+@flow(name="load_weekly_warehouse_client_performance_flow")
+def load_weekly_warehouse_client_performance_flow(
+    performance_rows: list[dict[str, Any]],
+) -> int:
+    """
+    Upsert weekly warehouse/client KPI rows into the reporting schema.
+    """
+
+    return upsert_weekly_performance_rows(
+        performance_rows
+    )
+
+
+@flow(name="weekly_warehouse_client_performance_flow")
+def weekly_warehouse_client_performance_flow(
+    week_start: date | str | None = None,
+    trigger_type: str = "scheduled",
+) -> dict[str, Any]:
+    """
+    Produce the Weekly Warehouse & Client Performance Report.
+
+    The main flow coordinates the TrackFlow extraction, transformation,
+    and load subflows while maintaining the pipeline execution audit log.
+    """
+
     logger = get_run_logger()
 
-    week_start = resolve_week_start(requested_week_start)
+    resolved_week_start = resolve_week_start(week_start)
     interval_start, interval_end = build_week_interval(
-        week_start
+        resolved_week_start
     )
 
     run_id = create_pipeline_run_log(
-        week_start,
+        resolved_week_start,
         trigger_type,
         interval_start,
         interval_end,
     )
 
     try:
-        extraction = extract_weekly_business_events(
+        extraction = extract_weekly_warehouse_client_events_flow(
             interval_start,
             interval_end,
         )
 
-        transformed = deduplicate_and_validate_events(
-            extraction
-        )
-
-        aggregated = (
-            aggregate_weekly_warehouse_client_metrics(
-                transformed,
-                week_start,
+        transformation = (
+            transform_weekly_warehouse_client_performance_flow(
+                extraction,
+                resolved_week_start,
             )
         )
 
-        validated = validate_weekly_metrics(aggregated)
+        transformed = transformation["transformed"]
+        performance_rows = transformation["performance_rows"]
 
-        loaded_records = upsert_weekly_performance_rows(
-            validated
+        loaded_records = (
+            load_weekly_warehouse_client_performance_flow(
+                performance_rows
+            )
         )
 
         optional_state: State = optional_pipeline_summary(
-            week_start,
+            resolved_week_start,
             loaded_records,
             return_state=True,
         )
@@ -578,7 +637,7 @@ def execute_weekly_pipeline(
         return {
             "pipeline": PIPELINE_NAME,
             "status": "Completed",
-            "week_start": week_start.isoformat(),
+            "week_start": resolved_week_start.isoformat(),
             "run_id": run_id,
             "extracted_records": extraction[
                 "extracted_records"
@@ -611,24 +670,15 @@ def execute_weekly_pipeline(
         raise
 
 
-@flow(name="weekly_warehouse_client_performance_flow")
-def weekly_warehouse_client_performance_flow(
-    week_start: date | str | None = None,
-    trigger_type: str = "scheduled",
-) -> dict[str, Any]:
-    return execute_weekly_pipeline(
-        week_start,
-        trigger_type,
-    )
-
-
 @flow(name="recompute_weekly_performance_flow")
 def recompute_weekly_performance_flow(
     week_start: date | str,
 ) -> dict[str, Any]:
-    return execute_weekly_pipeline(
-        week_start,
-        "manual",
+    """Manually recompute a specific TrackFlow ISO week."""
+
+    return weekly_warehouse_client_performance_flow(
+        week_start=week_start,
+        trigger_type="manual",
     )
 
 
