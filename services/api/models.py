@@ -1,10 +1,21 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-from sqlalchemy import Column, Date, DateTime, Index, Numeric, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field as SQLField
 from sqlmodel import Relationship, SQLModel
@@ -290,3 +301,89 @@ class PipelineRun(SQLModel, table=True):
             nullable=False,
         ),
     )
+
+
+class JobRun(SQLModel, table=True):
+    """
+    Records independent background orchestration executions.
+
+    PipelineRun records the internal ETL lifecycle. JobRun records the
+    nightly export, pipeline trigger, locking, and orchestration result.
+    """
+
+    __tablename__ = "job_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'failed')",
+            name="ck_job_runs_status",
+        ),
+        Index(
+            "ix_job_runs_job_name_target_date",
+            "job_name",
+            "target_date",
+        ),
+        Index(
+            "uq_job_runs_single_processing_job",
+            "job_name",
+            unique=True,
+            postgresql_where=text("status = 'processing'"),
+        ),
+        {"schema": "reporting"},
+    )
+
+    id: UUID = SQLField(default_factory=uuid4, primary_key=True)
+
+    job_name: str = SQLField(
+        sa_column=Column(
+            String(100),
+            nullable=False,
+        )
+    )
+
+    target_date: date = SQLField(
+        sa_column=Column(
+            Date,
+            nullable=False,
+        )
+    )
+
+    status: str = SQLField(
+        default="pending",
+        sa_column=Column(
+            String(20),
+            nullable=False,
+        ),
+    )
+
+    started_at: datetime | None = SQLField(
+        default=None,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=True,
+        ),
+    )
+
+    finished_at: datetime | None = SQLField(
+        default=None,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=True,
+        ),
+    )
+
+    error_message: str | None = SQLField(
+        default=None,
+        sa_column=Column(
+            Text,
+            nullable=True,
+        ),
+    )
+
+    created_at: datetime = SQLField(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=False,
+        ),
+    )
+
