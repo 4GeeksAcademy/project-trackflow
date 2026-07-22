@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import {
   createInboundOrder,
   getInventoryProducts,
@@ -10,30 +11,42 @@ import {
 } from "@/lib/inventory";
 import { track } from "@/lib/telemetry";
 
-function getTelemetryErrorCode(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "unknown_error";
+function normalizeWarehouse(
+  warehouse: Warehouse
+): "los_angeles" | "zaragoza" {
+  return warehouse === "LA" ? "los_angeles" : "zaragoza";
+}
+
+function createClientId(clientName: string): string {
+  return clientName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function getCreatedBy(): string {
+  if (typeof window === "undefined") {
+    return "unknown";
   }
 
-  const message = error.message.toLowerCase();
+  return localStorage.getItem("user_uuid") ?? "unknown";
+}
 
-  if (message.includes("logged in") || message.includes("unauthorized")) {
-    return "unauthorized";
-  }
-
-  if (message.includes("validation")) {
-    return "validation_error";
-  }
-
+function getOrderId(response: unknown): string {
   if (
-    message.includes("network") ||
-    message.includes("fetch") ||
-    message.includes("failed to connect")
+    typeof response === "object" &&
+    response !== null &&
+    "id" in response
   ) {
-    return "network_error";
+    const id = (response as { id?: unknown }).id;
+
+    if (typeof id === "string" || typeof id === "number") {
+      return String(id);
+    }
   }
 
-  return "inventory_api_error";
+  return crypto.randomUUID();
 }
 
 export default function InboundOrderPage() {
@@ -47,6 +60,11 @@ export default function InboundOrderPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === Number(skuId)),
+    [products, skuId]
+  );
+
   useEffect(() => {
     async function loadProducts() {
       try {
@@ -57,7 +75,9 @@ export default function InboundOrderPage() {
         setProducts(data);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to load products."
+          err instanceof Error
+            ? err.message
+            : "Failed to load products."
         );
       } finally {
         setLoading(false);
@@ -67,34 +87,51 @@ export default function InboundOrderPage() {
     void loadProducts();
   }, []);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
+
     setError("");
     setSuccess("");
 
-    if (!skuId) {
-      setError("Choose a SKU before registering the inbound delivery.");
+    if (!selectedProduct) {
+      setError("Choose a valid SKU before registering the inbound delivery.");
       return;
     }
 
-    const telemetryProperties = {
-      sku_id: Number(skuId),
-      quantity: Number(quantity),
-      warehouse,
-      reference,
-    };
+    const numericQuantity = Number(quantity);
+
+    if (!Number.isInteger(numericQuantity) || numericQuantity <= 0) {
+      setError("Quantity must be a positive whole number.");
+      return;
+    }
+
+    if (!reference.trim()) {
+      setError("Reference is required.");
+      return;
+    }
 
     try {
       setSubmitting(true);
 
-      await createInboundOrder({
-        sku_id: telemetryProperties.sku_id,
-        quantity: telemetryProperties.quantity,
-        reference: telemetryProperties.reference,
-        warehouse: telemetryProperties.warehouse,
+      const response = await createInboundOrder({
+        sku_id: selectedProduct.id,
+        quantity: numericQuantity,
+        reference: reference.trim(),
+        warehouse,
       });
 
-      track("stock_entry_created", telemetryProperties);
+      track("receiving_order_created", {
+        receiving_order_id: getOrderId(response),
+        sku_id: String(selectedProduct.id),
+        sku_code: selectedProduct.sku,
+        warehouse: normalizeWarehouse(warehouse),
+        client_id: createClientId(selectedProduct.client_name),
+        quantity: numericQuantity,
+        carrier: "not_provided",
+        created_by: getCreatedBy(),
+      });
 
       setSkuId("");
       setQuantity("");
@@ -102,11 +139,6 @@ export default function InboundOrderPage() {
       setWarehouse("LA");
       setSuccess("Inbound delivery registered successfully.");
     } catch (err) {
-      track("stock_entry_failed", {
-        error_code: getTelemetryErrorCode(err),
-        warehouse,
-      });
-
       setError(
         err instanceof Error
           ? err.message
@@ -118,13 +150,29 @@ export default function InboundOrderPage() {
   }
 
   return (
-    <main style={{ padding: "32px", maxWidth: "760px", margin: "0 auto" }}>
+    <main
+      style={{
+        padding: "32px",
+        maxWidth: "760px",
+        margin: "0 auto",
+      }}
+    >
       <header style={{ marginBottom: "24px" }}>
-        <p style={{ color: "#6b7280", marginBottom: "8px" }}>
+        <p
+          style={{
+            color: "#6b7280",
+            marginBottom: "8px",
+          }}
+        >
           TrackFlow Warehouse Operations
         </p>
 
-        <h1 style={{ fontSize: "32px", marginBottom: "8px" }}>
+        <h1
+          style={{
+            fontSize: "32px",
+            marginBottom: "8px",
+          }}
+        >
           Register Inbound Delivery
         </h1>
 
@@ -141,11 +189,17 @@ export default function InboundOrderPage() {
           flexWrap: "wrap",
         }}
       >
-        <Link href="/backoffice/inventory/products">Products</Link>
+        <Link href="/backoffice/inventory/products">
+          Products
+        </Link>
+
         <Link href="/backoffice/inventory/orders/outbound">
           Outbound Exit
         </Link>
-        <Link href="/backoffice/inventory/orders">Order History</Link>
+
+        <Link href="/backoffice/inventory/orders">
+          Order History
+        </Link>
       </nav>
 
       {loading && <p>Loading SKUs...</p>}
@@ -181,102 +235,117 @@ export default function InboundOrderPage() {
       {!loading && (
         <form
           onSubmit={handleSubmit}
-          style={{ display: "grid", gap: "16px" }}
+          style={{
+            display: "grid",
+            gap: "16px",
+          }}
         >
-          <label>
-            SKU Product
+          <label
+            style={{
+              display: "grid",
+              gap: "6px",
+            }}
+          >
+            <span>SKU</span>
+
             <select
+              required
               value={skuId}
               onChange={(event) => {
                 const nextSkuId = event.target.value;
-                setSkuId(nextSkuId);
-
-                const selectedProduct = products.find(
-                  (product) => product.id === Number(nextSkuId)
+                const product = products.find(
+                  (item) => item.id === Number(nextSkuId)
                 );
 
-                if (selectedProduct) {
-                  setWarehouse(selectedProduct.warehouse);
+                setSkuId(nextSkuId);
+
+                if (product) {
+                  setWarehouse(product.warehouse);
                 }
               }}
-              required
-              style={{
-                width: "100%",
-                padding: "12px",
-                marginTop: "6px",
-              }}
+              style={{ padding: "12px" }}
             >
-              <option value="">Choose a product</option>
+              <option value="">Choose a SKU</option>
 
               {products.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name} — {product.sku} — {product.warehouse}
+                <option
+                  key={product.id}
+                  value={product.id}
+                >
+                  {product.sku} — {product.name} — {product.client_name}
                 </option>
               ))}
             </select>
           </label>
 
-          <label>
-            Warehouse
+          <label
+            style={{
+              display: "grid",
+              gap: "6px",
+            }}
+          >
+            <span>Quantity</span>
+
+            <input
+              type="number"
+              min="1"
+              step="1"
+              required
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+              style={{ padding: "12px" }}
+            />
+          </label>
+
+          <label
+            style={{
+              display: "grid",
+              gap: "6px",
+            }}
+          >
+            <span>Reference</span>
+
+            <input
+              type="text"
+              required
+              value={reference}
+              onChange={(event) => setReference(event.target.value)}
+              placeholder="Supplier delivery reference"
+              style={{ padding: "12px" }}
+            />
+          </label>
+
+          <label
+            style={{
+              display: "grid",
+              gap: "6px",
+            }}
+          >
+            <span>Warehouse</span>
+
             <select
               value={warehouse}
               onChange={(event) =>
                 setWarehouse(event.target.value as Warehouse)
               }
-              required
-              style={{
-                width: "100%",
-                padding: "12px",
-                marginTop: "6px",
-              }}
+              style={{ padding: "12px" }}
             >
-              <option value="LA">Los Angeles Warehouse</option>
-              <option value="ZGZ">Zaragoza Warehouse</option>
+              <option value="LA">Los Angeles</option>
+              <option value="ZGZ">Zaragoza</option>
             </select>
-          </label>
-
-          <label>
-            Quantity Received
-            <input
-              type="number"
-              min="1"
-              value={quantity}
-              onChange={(event) => setQuantity(event.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "12px",
-                marginTop: "6px",
-              }}
-            />
-          </label>
-
-          <label>
-            Delivery Reference
-            <input
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              required
-              placeholder="Supplier delivery note, email reference, or warehouse receipt"
-              style={{
-                width: "100%",
-                padding: "12px",
-                marginTop: "6px",
-              }}
-            />
           </label>
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || products.length === 0}
             style={{
-              padding: "12px 16px",
+              padding: "12px",
               fontWeight: 700,
               cursor: submitting ? "not-allowed" : "pointer",
             }}
           >
             {submitting
-              ? "Saving Delivery..."
+              ? "Registering..."
               : "Register Inbound Delivery"}
           </button>
         </form>
