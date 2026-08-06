@@ -88,8 +88,8 @@ def test_retrieve_returns_normalized_results(monkeypatch: pytest.MonkeyPatch) ->
 
     results = pipeline_rag.retrieve(
         "Which carrier covers rural Aragón?",
-        top_k=3,
-        score_threshold=0.3,
+        k=3,
+        min_score=0.3,
     )
 
     assert len(results) == 1
@@ -123,7 +123,7 @@ def test_query_generates_answer_from_retrieved_context(
     monkeypatch.setattr(
         pipeline_rag,
         "retrieve",
-        lambda question, top_k, score_threshold: retrieved_chunks,
+        lambda query, k, min_score: retrieved_chunks,
     )
     monkeypatch.setattr(
         pipeline_rag,
@@ -175,7 +175,7 @@ def test_query_returns_safe_fallback_when_no_chunks(
     monkeypatch.setattr(
         pipeline_rag,
         "retrieve",
-        lambda question, top_k, score_threshold: [],
+        lambda query, k, min_score: [],
     )
 
     result = pipeline_rag.query(
@@ -183,3 +183,99 @@ def test_query_returns_safe_fallback_when_no_chunks(
     )
 
     assert "couldn't find enough approved TrackFlow information" in result
+
+
+def test_retrieve_passes_min_score_to_qdrant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        pipeline_rag,
+        "embed",
+        lambda query: [0.1, 0.2, 0.3],
+    )
+
+    mock_qdrant = MagicMock()
+    mock_qdrant.query_points.return_value = SimpleNamespace(points=[])
+
+    monkeypatch.setattr(
+        pipeline_rag,
+        "_qdrant_client",
+        lambda: mock_qdrant,
+    )
+    monkeypatch.setattr(
+        pipeline_rag,
+        "_required_env",
+        lambda name: "trackflow-knowledge-base",
+    )
+
+    results = pipeline_rag.retrieve(
+        "What is the return window?",
+        k=5,
+        min_score=0.75,
+    )
+
+    assert results == []
+
+    call = mock_qdrant.query_points.call_args
+    assert call.kwargs["limit"] == 5
+    assert call.kwargs["score_threshold"] == 0.75
+
+
+def test_retrieve_can_return_fewer_than_k_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        pipeline_rag,
+        "embed",
+        lambda query: [0.1, 0.2, 0.3],
+    )
+
+    mock_qdrant = MagicMock()
+    mock_qdrant.query_points.return_value = SimpleNamespace(
+        points=[
+            SimpleNamespace(
+                id="point-1",
+                score=0.92,
+                payload={
+                    "company": "trackflow",
+                    "source_document": "sla-delivery",
+                    "section": "Delivery SLA",
+                    "language": "en",
+                    "chunk_index": 1,
+                    "text": "Standard shipping takes 3 to 5 business days.",
+                },
+            ),
+            SimpleNamespace(
+                id="point-2",
+                score=0.81,
+                payload={
+                    "company": "trackflow",
+                    "source_document": "sla-delivery",
+                    "section": "Delivery SLA",
+                    "language": "en",
+                    "chunk_index": 3,
+                    "text": "High-demand dates do not have a guaranteed SLA.",
+                },
+            ),
+        ]
+    )
+
+    monkeypatch.setattr(
+        pipeline_rag,
+        "_qdrant_client",
+        lambda: mock_qdrant,
+    )
+    monkeypatch.setattr(
+        pipeline_rag,
+        "_required_env",
+        lambda name: "trackflow-knowledge-base",
+    )
+
+    results = pipeline_rag.retrieve(
+        "What is the delivery SLA?",
+        k=5,
+        min_score=0.30,
+    )
+
+    assert len(results) == 2
+    assert len(results) < 5

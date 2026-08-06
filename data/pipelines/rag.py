@@ -56,27 +56,30 @@ def _qdrant_client() -> QdrantClient:
 
 
 def retrieve(
-    question: str,
+    query: str,
     *,
-    top_k: int = DEFAULT_TOP_K,
-    score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+    k: int = 5,
+    min_score: float = DEFAULT_SCORE_THRESHOLD,
 ) -> list[dict[str, Any]]:
     """Retrieve the most relevant TrackFlow knowledge-base chunks."""
-    cleaned_question = question.strip()
+    cleaned_query = query.strip()
 
-    if not cleaned_question:
-        raise ValueError("Question cannot be empty.")
+    if not cleaned_query:
+        raise ValueError("Query cannot be empty.")
 
-    if top_k < 1:
-        raise ValueError("top_k must be at least 1.")
+    if k < 1:
+        raise ValueError("k must be at least 1.")
 
-    query_vector = embed(cleaned_question)
+    if not 0.0 <= min_score <= 1.0:
+        raise ValueError("min_score must be between 0 and 1.")
+
+    query_vector = embed(cleaned_query)
 
     response = _qdrant_client().query_points(
         collection_name=_required_env("QDRANT_COLLECTION"),
         query=query_vector,
-        limit=top_k,
-        score_threshold=score_threshold,
+        limit=k,
+        score_threshold=min_score,
         with_payload=True,
         with_vectors=False,
     )
@@ -100,7 +103,6 @@ def retrieve(
         )
 
     return results
-
 
 def _build_context(chunks: list[dict[str, Any]]) -> str:
     """Format retrieved chunks for the generation prompt."""
@@ -130,8 +132,8 @@ def query(question: str) -> str:
     """
     chunks = retrieve(
         question,
-        top_k=DEFAULT_TOP_K,
-        score_threshold=DEFAULT_SCORE_THRESHOLD,
+        k=DEFAULT_TOP_K,
+        min_score=DEFAULT_SCORE_THRESHOLD,
     )
 
     if not chunks:
