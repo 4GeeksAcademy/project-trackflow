@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from services.api.routes.agent import router as agent_router
 from services.api.routes.knowledge import router as knowledge_router
 
 
@@ -24,6 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(knowledge_router)
+app.include_router(agent_router)
 
 
 @app.get("/health")

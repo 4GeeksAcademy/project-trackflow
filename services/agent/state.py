@@ -1,0 +1,15 @@
+"""Minimal state shared between TrackFlow LangGraph agent nodes."""
+
+from __future__ import annotations
+
+from typing import Any, TypedDict
+
+
+class AgentState(TypedDict, total=False):
+    """Explicit state passed between LangGraph nodes."""
+
+    question: str
+    chunks: list[dict[str, Any]]
+    answer: str
+    error: str | None
+    run_id: str

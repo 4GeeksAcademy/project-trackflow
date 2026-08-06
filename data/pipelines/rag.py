@@ -104,6 +104,7 @@ def retrieve(
 
     return results
 
+
 def _build_context(chunks: list[dict[str, Any]]) -> str:
     """Format retrieved chunks for the generation prompt."""
     context_parts: list[str] = []
@@ -124,17 +125,19 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
     return "\n\n".join(context_parts)
 
 
-def query(question: str) -> str:
+def generate_answer(
+    question: str,
+    chunks: list[dict[str, Any]],
+) -> str:
     """
-    Retrieve relevant context and generate the final salesperson-ready answer.
+    Generate the final salesperson-ready answer from already-retrieved chunks.
 
-    External consumers receive only the generated answer string.
+    This function performs generation only and does not run retrieval.
     """
-    chunks = retrieve(
-        question,
-        k=DEFAULT_TOP_K,
-        min_score=DEFAULT_SCORE_THRESHOLD,
-    )
+    cleaned_question = question.strip()
+
+    if not cleaned_question:
+        raise ValueError("Question cannot be empty.")
 
     if not chunks:
         return (
@@ -171,7 +174,7 @@ implementation details.
 
     user_prompt = f"""
 Question:
-{question.strip()}
+{cleaned_question}
 
 Retrieved TrackFlow context:
 {context}
@@ -194,6 +197,21 @@ Generate the final answer using only that context.
         raise RuntimeError("The generation model returned an empty answer.")
 
     return answer.strip()
+
+
+def query(question: str) -> str:
+    """
+    Retrieve relevant context and generate the final salesperson-ready answer.
+
+    External consumers receive only the generated answer string.
+    """
+    chunks = retrieve(
+        question,
+        k=DEFAULT_TOP_K,
+        min_score=DEFAULT_SCORE_THRESHOLD,
+    )
+
+    return generate_answer(question, chunks)
 
 
 if __name__ == "__main__":
