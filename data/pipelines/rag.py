@@ -122,32 +122,24 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
     return "\n\n".join(context_parts)
 
 
-def query(
-    question: str,
-    *,
-    top_k: int = DEFAULT_TOP_K,
-    score_threshold: float = DEFAULT_SCORE_THRESHOLD,
-) -> dict[str, Any]:
+def query(question: str) -> str:
     """
-    Retrieve relevant context and generate a salesperson-ready answer.
+    Retrieve relevant context and generate the final salesperson-ready answer.
 
-    The raw vector-search result is never returned as the final answer.
+    External consumers receive only the generated answer string.
     """
     chunks = retrieve(
         question,
-        top_k=top_k,
-        score_threshold=score_threshold,
+        top_k=DEFAULT_TOP_K,
+        score_threshold=DEFAULT_SCORE_THRESHOLD,
     )
 
     if not chunks:
-        return {
-            "answer": (
-                "I couldn't find enough approved TrackFlow information to answer "
-                "that confidently. Please confirm the request with the appropriate "
-                "operations owner before making a commitment to the client."
-            ),
-            "sources": [],
-        }
+        return (
+            "I couldn't find enough approved TrackFlow information to answer "
+            "that confidently. Please confirm the request with the appropriate "
+            "operations owner before making a commitment to the client."
+        )
 
     context = _build_context(chunks)
 
@@ -199,24 +191,12 @@ Generate the final answer using only that context.
     if not answer:
         raise RuntimeError("The generation model returned an empty answer.")
 
-    return {
-        "answer": answer.strip(),
-        "sources": [
-            {
-                "source_document": chunk["source_document"],
-                "section": chunk["section"],
-                "chunk_index": chunk["chunk_index"],
-                "score": chunk["score"],
-            }
-            for chunk in chunks
-        ],
-    }
+    return answer.strip()
 
 
 if __name__ == "__main__":
     test_question = "What is the standard return window?"
-    result = query(test_question)
+    answer = query(test_question)
 
     print(f"Question: {test_question}")
-    print(f"Answer: {result['answer']}")
-    print(f"Sources: {result['sources']}")
+    print(f"Answer: {answer}")

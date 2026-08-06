@@ -159,8 +159,7 @@ def test_query_generates_answer_from_retrieved_context(
 
     result = pipeline_rag.query("What is the standard return window?")
 
-    assert "30 days" in result["answer"]
-    assert result["sources"][0]["source_document"] == "returns-policy"
+    assert "30 days" in result
 
     call = mock_openai.chat.completions.create.call_args
     messages = call.kwargs["messages"]
@@ -183,5 +182,4 @@ def test_query_returns_safe_fallback_when_no_chunks(
         "Can I offer an undocumented storage discount?"
     )
 
-    assert "couldn't find enough approved TrackFlow information" in result["answer"]
-    assert result["sources"] == []
+    assert "couldn't find enough approved TrackFlow information" in result
