@@ -21,6 +21,12 @@ load_dotenv(ENV_PATH)
 DEFAULT_TOP_K = 3
 DEFAULT_SCORE_THRESHOLD = 0.30
 
+NO_CONTEXT_ANSWER = (
+    "I couldn't find enough approved TrackFlow information to answer "
+    "that confidently. Please confirm the request with the appropriate "
+    "operations owner before making a commitment to the client."
+)
+
 
 def _required_env(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -105,7 +111,7 @@ def retrieve(
     return results
 
 
-def _build_context(chunks: list[dict[str, Any]]) -> str:
+def build_context(chunks: list[dict[str, Any]]) -> str:
     """Format retrieved chunks for the generation prompt."""
     context_parts: list[str] = []
 
@@ -127,26 +133,21 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
 
 def generate_answer(
     question: str,
-    chunks: list[dict[str, Any]],
+    context: str,
 ) -> str:
     """
-    Generate the final salesperson-ready answer from already-retrieved chunks.
+    Generate the final salesperson-ready answer from already-retrieved context.
 
-    This function performs generation only and does not run retrieval.
+    This function performs generation only and never runs retrieval.
     """
     cleaned_question = question.strip()
+    cleaned_context = context.strip()
 
     if not cleaned_question:
         raise ValueError("Question cannot be empty.")
 
-    if not chunks:
-        return (
-            "I couldn't find enough approved TrackFlow information to answer "
-            "that confidently. Please confirm the request with the appropriate "
-            "operations owner before making a commitment to the client."
-        )
-
-    context = _build_context(chunks)
+    if not cleaned_context:
+        return NO_CONTEXT_ANSWER
 
     system_prompt = """
 You are TrackFlow's internal commercial knowledge assistant.
@@ -177,7 +178,7 @@ Question:
 {cleaned_question}
 
 Retrieved TrackFlow context:
-{context}
+{cleaned_context}
 
 Generate the final answer using only that context.
 """.strip()
@@ -211,7 +212,9 @@ def query(question: str) -> str:
         min_score=DEFAULT_SCORE_THRESHOLD,
     )
 
-    return generate_answer(question, chunks)
+    context = build_context(chunks)
+
+    return generate_answer(question, context)
 
 
 if __name__ == "__main__":

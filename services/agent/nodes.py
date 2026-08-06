@@ -5,17 +5,12 @@ from __future__ import annotations
 from data.pipelines.rag import (
     DEFAULT_SCORE_THRESHOLD,
     DEFAULT_TOP_K,
+    NO_CONTEXT_ANSWER,
+    build_context,
     generate_answer,
     retrieve,
 )
 from services.agent.state import AgentState
-
-
-NO_CONTEXT_ANSWER = (
-    "I couldn't find enough approved TrackFlow information to answer "
-    "that confidently. Please confirm the request with the appropriate "
-    "operations owner before making a commitment to the client."
-)
 
 
 def validate_question_node(state: AgentState) -> AgentState:
@@ -36,7 +31,7 @@ def validate_question_node(state: AgentState) -> AgentState:
 
 
 def retrieve_context_node(state: AgentState) -> AgentState:
-    """Retrieve approved TrackFlow knowledge-base chunks."""
+    """Retrieve and format approved TrackFlow knowledge-base context."""
     question = state["question"]
 
     chunks = retrieve(
@@ -45,8 +40,11 @@ def retrieve_context_node(state: AgentState) -> AgentState:
         min_score=DEFAULT_SCORE_THRESHOLD,
     )
 
+    context = build_context(chunks)
+
     return {
         "chunks": chunks,
+        "context": context,
     }
 
 
@@ -58,11 +56,11 @@ def no_context_node(state: AgentState) -> AgentState:
 
 
 def generate_answer_node(state: AgentState) -> AgentState:
-    """Generate an answer using context retrieved by the previous node."""
+    """Generate from context already produced by the retrieval node."""
     question = state["question"]
-    chunks = state.get("chunks", [])
+    context = state.get("context", "")
 
-    answer = generate_answer(question, chunks)
+    answer = generate_answer(question, context)
 
     return {
         "answer": answer,
@@ -79,7 +77,7 @@ def route_after_validation(state: AgentState) -> str:
 
 def route_after_retrieval(state: AgentState) -> str:
     """Route based on whether relevant context was retrieved."""
-    if state.get("chunks"):
+    if state.get("context"):
         return "context_found"
 
     return "no_context"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -15,8 +14,6 @@ def test_invalid_question_stops_before_retrieval(
     tmp_path: Path,
 ) -> None:
     """An invalid question should terminate before retrieval or generation."""
-    trace_file = tmp_path / "agent_traces.jsonl"
-
     monkeypatch.setattr(
         agent_graph_module,
         "record_trace",
@@ -28,7 +25,9 @@ def test_invalid_question_stops_before_retrieval(
     def fail_retrieve(*args, **kwargs):
         nonlocal retrieve_called
         retrieve_called = True
-        raise AssertionError("Retrieval should not run for an invalid question.")
+        raise AssertionError(
+            "Retrieval should not run for an invalid question."
+        )
 
     monkeypatch.setattr(
         "services.agent.nodes.retrieve",
@@ -66,7 +65,9 @@ def test_valid_question_retrieves_then_generates(
 
     monkeypatch.setattr(
         "services.agent.nodes.generate_answer",
-        lambda question, chunks: "The standard return window is 30 days from delivery.",
+        lambda question, context: (
+            "The standard return window is 30 days from delivery."
+        ),
     )
 
     recorded = {}
@@ -86,6 +87,7 @@ def test_valid_question_retrieves_then_generates(
     )
 
     assert "30 days" in result["answer"]
+    assert "30 days from delivery" in result["context"]
 
     executed_nodes = [
         event["node"]
@@ -134,7 +136,9 @@ def test_no_context_uses_safe_fallback(
         "Can I offer an undocumented discount?"
     )
 
-    assert "couldn't find enough approved TrackFlow information" in result["answer"]
+    assert "couldn't find enough approved TrackFlow information" in (
+        result["answer"]
+    )
 
     executed_nodes = [
         event["node"]
@@ -183,7 +187,7 @@ def test_trace_file_is_queryable(
             {
                 "node": "retrieve_context",
                 "output": {
-                    "chunks": []
+                    "context": "Standard return window: 30 days."
                 },
             },
         ],
@@ -195,3 +199,59 @@ def test_trace_file_is_queryable(
     assert saved is not None
     assert saved["run_id"] == "run-123"
     assert saved["events"][0]["node"] == "validate_question"
+
+
+def test_checkpoint_can_be_inspected_after_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A completed run should leave inspectable LangGraph checkpoint state."""
+    retrieved_chunks = [
+        {
+            "id": "point-1",
+            "score": 0.91,
+            "company": "trackflow",
+            "source_document": "returns-policy",
+            "section": "Returns Policy",
+            "language": "en",
+            "chunk_index": 2,
+            "text": "Standard return window: 30 days from delivery.",
+        }
+    ]
+
+    monkeypatch.setattr(
+        "services.agent.nodes.retrieve",
+        lambda question, k, min_score: retrieved_chunks,
+    )
+
+    monkeypatch.setattr(
+        "services.agent.nodes.generate_answer",
+        lambda question, context: (
+            "The standard return window is 30 days from delivery."
+        ),
+    )
+
+    monkeypatch.setattr(
+        agent_graph_module,
+        "record_trace",
+        lambda **kwargs: kwargs,
+    )
+
+    result = agent_graph_module.run_agent(
+        "What is the standard return window?"
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": result["run_id"],
+        }
+    }
+
+    checkpoint = agent_graph_module.agent_graph.get_state(config)
+
+    assert checkpoint.values["question"] == (
+        "What is the standard return window?"
+    )
+    assert checkpoint.values["answer"] == (
+        "The standard return window is 30 days from delivery."
+    )
+    assert "30 days from delivery" in checkpoint.values["context"]

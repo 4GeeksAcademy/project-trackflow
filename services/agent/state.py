@@ -10,6 +10,7 @@ class AgentState(TypedDict, total=False):
 
     question: str
     chunks: list[dict[str, Any]]
+    context: str
     answer: str
     error: str | None
     run_id: str
