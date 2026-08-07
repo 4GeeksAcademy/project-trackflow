@@ -29,7 +29,10 @@ from services.agent.nodes import (
     validate_question_node,
 )
 from services.agent.state import AgentState
-from services.agent.trace import record_trace
+from services.agent.trace import (
+    record_guardrail_event,
+    record_trace,
+)
 
 
 def build_graph():
@@ -131,6 +134,56 @@ def build_graph():
 agent_graph = build_graph()
 
 
+def record_triggered_guardrail(
+    *,
+    run_id: str,
+    question: str,
+    result: AgentState,
+) -> None:
+    """Record the guardrail that stopped or redirected the request."""
+    if result.get("guardrail_allowed") is False:
+        record_guardrail_event(
+            run_id=run_id,
+            question=question,
+            guardrail_type=str(
+                result.get("guardrail_category") or "content"
+            ),
+            reason=str(
+                result.get("guardrail_reason") or "input_guardrail"
+            ),
+            action="blocked_or_redirected",
+        )
+        return
+
+    if (
+        result.get("tracking_number")
+        and result.get("tracking_authorized") is False
+    ):
+        record_guardrail_event(
+            run_id=run_id,
+            question=question,
+            guardrail_type="authorization",
+            reason=str(
+                result.get("tracking_authorization_reason")
+                or "tracking_authorization_failed"
+            ),
+            action="blocked",
+        )
+        return
+
+    if result.get("country_policy_allowed") is False:
+        record_guardrail_event(
+            run_id=run_id,
+            question=question,
+            guardrail_type="country_policy",
+            reason=str(
+                result.get("country_policy_reason")
+                or "country_policy_mismatch"
+            ),
+            action="blocked",
+        )
+
+
 async def run_agent(
     question: str,
     authenticated_user: dict | None = None,
@@ -182,6 +235,12 @@ async def run_agent(
 
             if isinstance(update, dict):
                 final_state.update(update)
+
+    record_triggered_guardrail(
+        run_id=run_id,
+        question=question,
+        result=final_state,
+    )
 
     record_trace(
         run_id=run_id,
