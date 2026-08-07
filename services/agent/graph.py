@@ -8,20 +8,24 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from services.agent.nodes import (
+    country_policy_guard_node,
     generate_answer_node,
     generate_combined_answer_node,
     generate_ticket_answer_node,
     guard_input_node,
     no_context_node,
     retrieve_context_node,
+    route_after_country_policy,
     route_after_guard,
     route_after_request,
     route_after_retrieval,
     route_after_ticket_lookup,
+    route_after_tracking_authorization,
     route_after_validation,
     route_request_node,
     ticket_fallback_node,
     ticket_lookup_node,
+    tracking_authorization_node,
     validate_question_node,
 )
 from services.agent.state import AgentState
@@ -34,6 +38,8 @@ def build_graph():
 
     builder.add_node("validate_question", validate_question_node)
     builder.add_node("guard_input", guard_input_node)
+    builder.add_node("tracking_authorization", tracking_authorization_node)
+    builder.add_node("country_policy_guard", country_policy_guard_node)
     builder.add_node("route_request", route_request_node)
     builder.add_node("retrieve_context", retrieve_context_node)
     builder.add_node("ticket_lookup", ticket_lookup_node)
@@ -57,6 +63,24 @@ def build_graph():
     builder.add_conditional_edges(
         "guard_input",
         route_after_guard,
+        {
+            "allowed": "tracking_authorization",
+            "blocked": END,
+        },
+    )
+
+    builder.add_conditional_edges(
+        "tracking_authorization",
+        route_after_tracking_authorization,
+        {
+            "allowed": "country_policy_guard",
+            "blocked": END,
+        },
+    )
+
+    builder.add_conditional_edges(
+        "country_policy_guard",
+        route_after_country_policy,
         {
             "allowed": "route_request",
             "blocked": END,

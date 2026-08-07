@@ -12,13 +12,24 @@ from data.pipelines.rag import (
     generate_answer,
     retrieve,
 )
-from services.agent.guardrails import evaluate_input
+from services.agent.authorization import authorize_tracking_number
+from services.agent.guardrails import (
+    enforce_country_policy,
+    evaluate_input,
+)
 from services.agent.state import AgentState
 from services.agent.tools import TicketLookupInput, lookup_ticket
 
 
 TICKET_PATTERN = re.compile(
     r"\b(?:ticket|incident)\s*#?\s*(\d+)\b",
+    re.IGNORECASE,
+)
+
+TRACKING_PATTERN = re.compile(
+    r"\b(?:tracking(?:\s+number)?|order)\s*#\s*([A-Za-z0-9-]+)\b"
+    r"|\btracking(?:\s+number)?\s+([A-Za-z0-9-]*\d[A-Za-z0-9-]*)\b"
+    r"|\border\s+([A-Za-z0-9-]*\d[A-Za-z0-9-]*)\b",
     re.IGNORECASE,
 )
 
@@ -50,6 +61,89 @@ def guard_input_node(state: AgentState) -> AgentState:
         "guardrail_reason": decision.reason,
         "guardrail_response": decision.response,
         "answer": decision.response if not decision.allowed else None,
+    }
+
+
+def tracking_authorization_node(state: AgentState) -> AgentState:
+    """Authorize access to any tracking/order number mentioned by the user."""
+    question = state["question"]
+    match = TRACKING_PATTERN.search(question)
+
+    if not match:
+        return {
+            "tracking_number": None,
+            "tracking_authorized": None,
+            "tracking_authorization_reason": None,
+            "shipment_country": None,
+        }
+
+    tracking_number = next(
+        group for group in match.groups() if group is not None
+    )
+
+    authenticated_user_uuid = state.get("authenticated_user_uuid")
+
+    if not authenticated_user_uuid:
+        return {
+            "tracking_number": tracking_number,
+            "tracking_authorized": False,
+            "tracking_authorization_reason": "missing_authenticated_user",
+            "shipment_country": None,
+            "answer": (
+                "I can't verify access to that TrackFlow order or tracking "
+                "number. Please authenticate with the customer account that "
+                "owns the shipment."
+            ),
+        }
+
+    authorization = authorize_tracking_number(
+        tracking_number=tracking_number,
+        authenticated_user_uuid=authenticated_user_uuid,
+    )
+
+    if not authorization.authorized:
+        return {
+            "tracking_number": tracking_number,
+            "tracking_authorized": False,
+            "tracking_authorization_reason": authorization.reason,
+            "shipment_country": authorization.shipment_country,
+            "answer": (
+                "I can't provide information for that order or tracking "
+                "number because I can't verify that it belongs to your "
+                "authenticated TrackFlow account."
+            ),
+        }
+
+    return {
+        "tracking_number": tracking_number,
+        "tracking_authorized": True,
+        "tracking_authorization_reason": None,
+        "shipment_country": authorization.shipment_country,
+    }
+
+
+def country_policy_guard_node(state: AgentState) -> AgentState:
+    """Enforce the policy that belongs to the shipment's actual country."""
+    decision = enforce_country_policy(
+        question=state["question"],
+        shipment_country=state.get("shipment_country"),
+    )
+
+    return {
+        "shipment_country": (
+            decision.shipment_country
+            if decision.shipment_country is not None
+            else state.get("shipment_country")
+        ),
+        "requested_policy_country": decision.requested_country,
+        "country_policy_allowed": decision.allowed,
+        "country_policy_reason": decision.reason,
+        "country_policy_response": decision.response,
+        "answer": (
+            decision.response
+            if not decision.allowed
+            else state.get("answer")
+        ),
     }
 
 
@@ -212,8 +306,27 @@ def route_after_validation(state: AgentState) -> str:
 
 
 def route_after_guard(state: AgentState) -> str:
-    """Route blocked requests directly to the end."""
+    """Route input-guard failures directly to the end."""
     if not state.get("guardrail_allowed", True):
+        return "blocked"
+
+    return "allowed"
+
+
+def route_after_tracking_authorization(state: AgentState) -> str:
+    """Stop unauthorized tracking requests before RAG or tools execute."""
+    tracking_number = state.get("tracking_number")
+    tracking_authorized = state.get("tracking_authorized")
+
+    if tracking_number and tracking_authorized is False:
+        return "blocked"
+
+    return "allowed"
+
+
+def route_after_country_policy(state: AgentState) -> str:
+    """Stop country-policy override attempts before RAG or tools execute."""
+    if not state.get("country_policy_allowed", True):
         return "blocked"
 
     return "allowed"

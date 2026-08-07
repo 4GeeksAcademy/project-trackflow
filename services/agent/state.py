@@ -29,6 +29,16 @@ class AgentState(TypedDict, total=False):
     guardrail_reason: str | None
     guardrail_response: str | None
 
+    tracking_number: str | None
+    tracking_authorized: bool | None
+    tracking_authorization_reason: str | None
+
+    shipment_country: Literal["USA", "Spain"] | None
+    requested_policy_country: Literal["USA", "Spain"] | None
+    country_policy_allowed: bool | None
+    country_policy_reason: str | None
+    country_policy_response: str | None
+
     route: Literal["rag", "ticket", "both"]
     incident_id: int | None
     ticket_result: dict[str, Any] | None
