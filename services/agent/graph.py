@@ -9,10 +9,17 @@ from langgraph.graph import END, START, StateGraph
 
 from services.agent.nodes import (
     generate_answer_node,
+    generate_combined_answer_node,
+    generate_ticket_answer_node,
     no_context_node,
     retrieve_context_node,
+    route_after_request,
     route_after_retrieval,
+    route_after_ticket_lookup,
     route_after_validation,
+    route_request_node,
+    ticket_fallback_node,
+    ticket_lookup_node,
     validate_question_node,
 )
 from services.agent.state import AgentState
@@ -20,13 +27,18 @@ from services.agent.trace import record_trace
 
 
 def build_graph():
-    """Build and compile the TrackFlow agent graph."""
+    """Build and compile the TrackFlow support-agent graph."""
     builder = StateGraph(AgentState)
 
     builder.add_node("validate_question", validate_question_node)
+    builder.add_node("route_request", route_request_node)
     builder.add_node("retrieve_context", retrieve_context_node)
+    builder.add_node("ticket_lookup", ticket_lookup_node)
+    builder.add_node("ticket_fallback", ticket_fallback_node)
     builder.add_node("no_context", no_context_node)
     builder.add_node("generate_answer", generate_answer_node)
+    builder.add_node("generate_ticket_answer", generate_ticket_answer_node)
+    builder.add_node("generate_combined_answer", generate_combined_answer_node)
 
     builder.add_edge(START, "validate_question")
 
@@ -34,8 +46,28 @@ def build_graph():
         "validate_question",
         route_after_validation,
         {
-            "valid": "retrieve_context",
+            "valid": "route_request",
             "invalid": END,
+        },
+    )
+
+    builder.add_conditional_edges(
+        "route_request",
+        route_after_request,
+        {
+            "rag": "retrieve_context",
+            "ticket": "ticket_lookup",
+            "both": "ticket_lookup",
+        },
+    )
+
+    builder.add_conditional_edges(
+        "ticket_lookup",
+        route_after_ticket_lookup,
+        {
+            "ticket": "generate_ticket_answer",
+            "both": "retrieve_context",
+            "failed": "ticket_fallback",
         },
     )
 
@@ -44,11 +76,15 @@ def build_graph():
         route_after_retrieval,
         {
             "context_found": "generate_answer",
+            "combined": "generate_combined_answer",
             "no_context": "no_context",
         },
     )
 
     builder.add_edge("generate_answer", END)
+    builder.add_edge("generate_ticket_answer", END)
+    builder.add_edge("generate_combined_answer", END)
+    builder.add_edge("ticket_fallback", END)
     builder.add_edge("no_context", END)
 
     checkpointer = MemorySaver()
