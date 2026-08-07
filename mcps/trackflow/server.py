@@ -26,21 +26,29 @@ from mcps.trackflow.config import (
     MCP_RESOURCE_URL,
 )
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+
 logger = logging.getLogger("trackflow.mcp")
 
 
-# MCP Auth obtains the OAuth/OIDC provider metadata and validates bearer JWTs.
+# ---------------------------------------------------------------------------
+# OAuth / MCP Auth
+# ---------------------------------------------------------------------------
+
 auth_server_config = fetch_server_config(
     MCP_AUTH_ISSUER,
     type=AuthServerType.OIDC,
 )
+
 mcp_auth = MCPAuth(server=auth_server_config)
 
+
+# ---------------------------------------------------------------------------
+# FastMCP server
+# ---------------------------------------------------------------------------
 
 mcp = FastMCP(
     name="TrackFlow Company Tools",
@@ -53,24 +61,12 @@ mcp = FastMCP(
 )
 
 
-def require_scope(scope: str) -> None:
-    """Reject authenticated users that do not hold the required OAuth scope."""
-
-    auth_info = mcp_auth.auth_info
-
-    if auth_info is None:
-        raise MCPAuthBearerAuthException(
-            BearerAuthExceptionCode.INVALID_TOKEN
-        )
-
-    if scope not in auth_info.scopes:
-        raise MCPAuthBearerAuthException(
-            BearerAuthExceptionCode.MISSING_REQUIRED_SCOPES
-        )
-
+# ---------------------------------------------------------------------------
+# Authorization and audit helpers
+# ---------------------------------------------------------------------------
 
 def audit(tool: str, **arguments: Any) -> None:
-    """Record every MCP tool invocation without logging bearer tokens."""
+    """Record the start of every MCP tool invocation without bearer tokens."""
 
     auth_info = mcp_auth.auth_info
 
@@ -84,6 +80,105 @@ def audit(tool: str, **arguments: Any) -> None:
     )
 
 
+def audit_result(
+    tool: str,
+    result: str,
+    *,
+    error: str | None = None,
+    **arguments: Any,
+) -> None:
+    """Record the final result of an MCP tool invocation."""
+
+    auth_info = mcp_auth.auth_info
+
+    logger.info(
+        "tool=%s subject=%s client_id=%s result=%s error=%s arguments=%s",
+        tool,
+        auth_info.subject if auth_info else None,
+        auth_info.client_id if auth_info else None,
+        result,
+        error,
+        arguments,
+    )
+
+
+def require_scope(
+    scope: str,
+    *,
+    tool: str,
+    arguments: dict[str, Any] | None = None,
+) -> None:
+    """Reject clients that do not hold the required OAuth scope."""
+
+    auth_info = mcp_auth.auth_info
+    audit_arguments = arguments or {}
+
+    if auth_info is None:
+        audit_result(
+            tool,
+            "error",
+            error="No authenticated MCP client context is available.",
+            **audit_arguments,
+        )
+
+        raise MCPAuthBearerAuthException(
+            BearerAuthExceptionCode.INVALID_TOKEN
+        )
+
+    if scope not in auth_info.scopes:
+        audit_result(
+            tool,
+            "denied",
+            error=f"Missing required OAuth scope: {scope}",
+            **audit_arguments,
+        )
+
+        raise MCPAuthBearerAuthException(
+            BearerAuthExceptionCode.MISSING_REQUIRED_SCOPES
+        )
+
+
+async def audited_request(
+    tool: str,
+    method: str,
+    path: str,
+    *,
+    audit_arguments: dict[str, Any] | None = None,
+    **request_kwargs: Any,
+) -> Any:
+    """Call TrackFlow and record an explicit success or error result."""
+
+    arguments = audit_arguments or {}
+
+    try:
+        result = await request_trackflow(
+            method,
+            path,
+            **request_kwargs,
+        )
+
+    except Exception as error:
+        audit_result(
+            tool,
+            "error",
+            error=f"{type(error).__name__}: {error}",
+            **arguments,
+        )
+        raise
+
+    audit_result(
+        tool,
+        "success",
+        **arguments,
+    )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Incident tools
+# ---------------------------------------------------------------------------
+
 @mcp.tool(
     name="get_incident",
     description=(
@@ -91,13 +186,30 @@ def audit(tool: str, **arguments: Any) -> None:
         "This is a read-only incident operation and requires incidents:read."
     ),
 )
-async def get_incident(incident_id: int) -> dict[str, Any]:
-    require_scope(INCIDENT_READ_SCOPE)
-    audit("get_incident", incident_id=incident_id)
+async def get_incident(
+    incident_id: int,
+) -> dict[str, Any]:
 
-    return await request_trackflow(
+    arguments = {
+        "incident_id": incident_id,
+    }
+
+    audit(
+        "get_incident",
+        **arguments,
+    )
+
+    require_scope(
+        INCIDENT_READ_SCOPE,
+        tool="get_incident",
+        arguments=arguments,
+    )
+
+    return await audited_request(
+        "get_incident",
         "GET",
         f"/api/incidents/{incident_id}",
+        audit_arguments=arguments,
     )
 
 
@@ -115,30 +227,37 @@ async def list_incidents(
     branch: str | None = None,
     category: str | None = None,
 ) -> list[dict[str, Any]]:
-    require_scope(INCIDENT_READ_SCOPE)
+
+    arguments = {
+        "status": status,
+        "origin": origin,
+        "branch": branch,
+        "category": category,
+    }
+
     audit(
         "list_incidents",
-        status=status,
-        origin=origin,
-        branch=branch,
-        category=category,
+        **arguments,
+    )
+
+    require_scope(
+        INCIDENT_READ_SCOPE,
+        tool="list_incidents",
+        arguments=arguments,
     )
 
     params = {
         key: value
-        for key, value in {
-            "status": status,
-            "origin": origin,
-            "branch": branch,
-            "category": category,
-        }.items()
+        for key, value in arguments.items()
         if value is not None
     }
 
-    return await request_trackflow(
+    return await audited_request(
+        "list_incidents",
         "GET",
         "/api/incidents",
         params=params,
+        audit_arguments=arguments,
     )
 
 
@@ -150,10 +269,16 @@ async def list_incidents(
     ),
 )
 async def get_incident_summary() -> dict[str, Any]:
-    require_scope(INCIDENT_READ_SCOPE)
+
     audit("get_incident_summary")
 
-    return await request_trackflow(
+    require_scope(
+        INCIDENT_READ_SCOPE,
+        tool="get_incident_summary",
+    )
+
+    return await audited_request(
+        "get_incident_summary",
         "GET",
         "/api/incidents/summary",
     )
@@ -181,8 +306,17 @@ async def create_incident(
         "client_complaint",
         "other",
     ],
-    status: Literal["open", "in_progress", "resolved", "discarded"],
-    origin: Literal["customer", "branch", "internal"],
+    status: Literal[
+        "open",
+        "in_progress",
+        "resolved",
+        "discarded",
+    ],
+    origin: Literal[
+        "customer",
+        "branch",
+        "internal",
+    ],
     branch: Literal[
         "central",
         "la_warehouse",
@@ -191,17 +325,28 @@ async def create_incident(
         "zaragoza_office",
     ],
 ) -> dict[str, Any]:
-    require_scope(INCIDENT_WRITE_SCOPE)
+
+    arguments = {
+        "title": title,
+        "category": category,
+        "status": status,
+        "origin": origin,
+        "branch": branch,
+    }
+
     audit(
         "create_incident",
-        title=title,
-        category=category,
-        status=status,
-        origin=origin,
-        branch=branch,
+        **arguments,
     )
 
-    return await request_trackflow(
+    require_scope(
+        INCIDENT_WRITE_SCOPE,
+        tool="create_incident",
+        arguments=arguments,
+    )
+
+    return await audited_request(
+        "create_incident",
         "POST",
         "/api/incidents",
         json={
@@ -212,6 +357,7 @@ async def create_incident(
             "origin": origin,
             "branch": branch,
         },
+        audit_arguments=arguments,
     )
 
 
@@ -226,21 +372,44 @@ async def create_incident(
 )
 async def update_incident_status(
     incident_id: int,
-    status: Literal["open", "in_progress", "resolved", "discarded"],
+    status: Literal[
+        "open",
+        "in_progress",
+        "resolved",
+        "discarded",
+    ],
 ) -> dict[str, Any]:
-    require_scope(INCIDENT_WRITE_SCOPE)
+
+    arguments = {
+        "incident_id": incident_id,
+        "status": status,
+    }
+
     audit(
         "update_incident_status",
-        incident_id=incident_id,
-        status=status,
+        **arguments,
     )
 
-    return await request_trackflow(
+    require_scope(
+        INCIDENT_WRITE_SCOPE,
+        tool="update_incident_status",
+        arguments=arguments,
+    )
+
+    return await audited_request(
+        "update_incident_status",
         "PATCH",
         f"/api/incidents/{incident_id}/status",
-        json={"status": status},
+        json={
+            "status": status,
+        },
+        audit_arguments=arguments,
     )
 
+
+# ---------------------------------------------------------------------------
+# Inventory tools
+# ---------------------------------------------------------------------------
 
 @mcp.tool(
     name="list_inventory_products",
@@ -251,10 +420,16 @@ async def update_incident_status(
     ),
 )
 async def list_inventory_products() -> list[dict[str, Any]]:
-    require_scope(INVENTORY_READ_SCOPE)
+
     audit("list_inventory_products")
 
-    return await request_trackflow(
+    require_scope(
+        INVENTORY_READ_SCOPE,
+        tool="list_inventory_products",
+    )
+
+    return await audited_request(
+        "list_inventory_products",
         "GET",
         "/inventory/products",
     )
@@ -268,13 +443,30 @@ async def list_inventory_products() -> list[dict[str, Any]]:
         "Requires inventory:read."
     ),
 )
-async def get_inventory_product(product_id: int) -> dict[str, Any]:
-    require_scope(INVENTORY_READ_SCOPE)
-    audit("get_inventory_product", product_id=product_id)
+async def get_inventory_product(
+    product_id: int,
+) -> dict[str, Any]:
 
-    return await request_trackflow(
+    arguments = {
+        "product_id": product_id,
+    }
+
+    audit(
+        "get_inventory_product",
+        **arguments,
+    )
+
+    require_scope(
+        INVENTORY_READ_SCOPE,
+        tool="get_inventory_product",
+        arguments=arguments,
+    )
+
+    return await audited_request(
+        "get_inventory_product",
         "GET",
         f"/inventory/products/{product_id}",
+        audit_arguments=arguments,
     )
 
 
@@ -286,10 +478,16 @@ async def get_inventory_product(product_id: int) -> dict[str, Any]:
     ),
 )
 async def list_inventory_movements() -> list[dict[str, Any]]:
-    require_scope(INVENTORY_READ_SCOPE)
+
     audit("list_inventory_movements")
 
-    return await request_trackflow(
+    require_scope(
+        INVENTORY_READ_SCOPE,
+        tool="list_inventory_movements",
+    )
+
+    return await audited_request(
+        "list_inventory_movements",
         "GET",
         "/inventory/orders",
     )
@@ -312,7 +510,25 @@ async def inventory_write_attempt(
         "delete_inventory",
     ],
 ) -> dict[str, Any]:
-    audit("inventory_write_attempt", action=action)
+
+    arguments = {
+        "action": action,
+    }
+
+    audit(
+        "inventory_write_attempt",
+        **arguments,
+    )
+
+    audit_result(
+        "inventory_write_attempt",
+        "rejected",
+        error=(
+            "Inventory mutations are forbidden through the MCP server. "
+            "Inventory tools are read-only by design."
+        ),
+        **arguments,
+    )
 
     raise PermissionError(
         "Inventory mutations are forbidden through the MCP server. "
@@ -320,7 +536,10 @@ async def inventory_write_attempt(
     )
 
 
-# FastMCP 3.x Streamable HTTP application.
+# ---------------------------------------------------------------------------
+# Streamable HTTP application
+# ---------------------------------------------------------------------------
+
 mcp_http_app = mcp.http_app(
     path="/mcp",
     transport="streamable-http",
@@ -328,7 +547,10 @@ mcp_http_app = mcp.http_app(
 )
 
 
-# Bearer authentication protects every MCP protocol request.
+# ---------------------------------------------------------------------------
+# MCP Auth middleware
+# ---------------------------------------------------------------------------
+
 bearer_auth = Middleware(
     mcp_auth.bearer_auth_middleware(
         "jwt",
@@ -338,25 +560,36 @@ bearer_auth = Middleware(
 )
 
 
-# MCP Auth metadata remains publicly discoverable while the MCP endpoint itself
-# requires a valid OAuth bearer token.
+# Protected Resource Metadata remains publicly discoverable.
+# The MCP protocol endpoint itself requires a valid OAuth bearer token.
+
 app = Starlette(
     routes=[
         mcp_auth.metadata_route(),
-        Mount("/", app=mcp_http_app, middleware=[bearer_auth]),
+        Mount(
+            "/",
+            app=mcp_http_app,
+            middleware=[bearer_auth],
+        ),
     ],
     lifespan=mcp_http_app.lifespan,
 )
 
 
+# ---------------------------------------------------------------------------
+# Local development entry point
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
     import uvicorn
 
-    from mcps.trackflow.config import MCP_HOST, MCP_PORT
+    from mcps.trackflow.config import (
+        MCP_HOST,
+        MCP_PORT,
+    )
 
     uvicorn.run(
         "mcps.trackflow.server:app",
         host=MCP_HOST,
         port=MCP_PORT,
-        reload=False,
     )
