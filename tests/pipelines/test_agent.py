@@ -9,7 +9,7 @@ import pytest
 from services.agent import graph as agent_graph_module
 
 
-def test_invalid_question_stops_before_retrieval(
+async def test_invalid_question_stops_before_retrieval(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -34,14 +34,14 @@ def test_invalid_question_stops_before_retrieval(
         fail_retrieve,
     )
 
-    result = agent_graph_module.run_agent("   ")
+    result = await agent_graph_module.run_agent("   ")
 
     assert result["error"] == "Question cannot be empty."
     assert result["answer"] == ""
     assert retrieve_called is False
 
 
-def test_valid_question_retrieves_then_generates(
+async def test_valid_question_retrieves_then_generates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A grounded question should follow retrieve -> generate."""
@@ -82,7 +82,7 @@ def test_valid_question_retrieves_then_generates(
         fake_record_trace,
     )
 
-    result = agent_graph_module.run_agent(
+    result = await agent_graph_module.run_agent(
         "What is the standard return window?"
     )
 
@@ -102,7 +102,7 @@ def test_valid_question_retrieves_then_generates(
     ]
 
 
-def test_no_context_uses_safe_fallback(
+async def test_no_context_uses_safe_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No retrieved context should route to the safe fallback node."""
@@ -133,7 +133,7 @@ def test_no_context_uses_safe_fallback(
         fake_record_trace,
     )
 
-    result = agent_graph_module.run_agent(
+    result = await agent_graph_module.run_agent(
         "Can I offer an undocumented discount?"
     )
 
@@ -203,7 +203,7 @@ def test_trace_file_is_queryable(
     assert saved["events"][0]["node"] == "validate_question"
 
 
-def test_checkpoint_can_be_inspected_after_run(
+async def test_checkpoint_can_be_inspected_after_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A completed run should leave inspectable LangGraph checkpoint state."""
@@ -238,7 +238,7 @@ def test_checkpoint_can_be_inspected_after_run(
         lambda **kwargs: kwargs,
     )
 
-    result = agent_graph_module.run_agent(
+    result = await agent_graph_module.run_agent(
         "What is the standard return window?"
     )
 
@@ -258,7 +258,7 @@ def test_checkpoint_can_be_inspected_after_run(
     )
     assert "30 days from delivery" in checkpoint.values["context"]
 
-def test_ticket_question_routes_to_live_tool(
+async def test_ticket_question_routes_to_live_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A ticket-status question should use the incident tool, not RAG."""
@@ -274,9 +274,8 @@ def test_ticket_question_routes_to_live_tool(
         fail_retrieve,
     )
 
-    monkeypatch.setattr(
-        "services.agent.nodes.lookup_ticket",
-        lambda payload: TicketLookupResult(
+    async def fake_lookup_ticket(payload):
+        return TicketLookupResult(
             success=True,
             incident=IncidentRecord(
                 id=1,
@@ -291,7 +290,11 @@ def test_ticket_question_routes_to_live_tool(
                 created_at="2026-07-06T23:31:47.205232+00:00",
                 updated_at="2026-07-06T23:32:57.301961+00:00",
             ),
-        ),
+        )
+
+    monkeypatch.setattr(
+        "services.agent.nodes.lookup_ticket",
+        fake_lookup_ticket,
     )
 
     recorded = {}
@@ -306,7 +309,7 @@ def test_ticket_question_routes_to_live_tool(
         fake_record_trace,
     )
 
-    result = agent_graph_module.run_agent(
+    result = await agent_graph_module.run_agent(
         "What is the status of ticket 1?"
     )
 
@@ -327,7 +330,7 @@ def test_ticket_question_routes_to_live_tool(
     ]
 
 
-def test_policy_question_routes_to_rag(
+async def test_policy_question_routes_to_rag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A policy question should use RAG and should not call the ticket tool."""
@@ -378,7 +381,7 @@ def test_policy_question_routes_to_rag(
         fake_record_trace,
     )
 
-    result = agent_graph_module.run_agent(
+    result = await agent_graph_module.run_agent(
         "What is the standard return policy?"
     )
 
@@ -398,18 +401,21 @@ def test_policy_question_routes_to_rag(
     ]
 
 
-def test_ticket_tool_failure_routes_to_fallback(
+async def test_ticket_tool_failure_routes_to_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failed incident call should recover through the fallback node."""
     from services.agent.tools import TicketLookupResult
 
-    monkeypatch.setattr(
-        "services.agent.nodes.lookup_ticket",
-        lambda payload: TicketLookupResult(
+    async def fake_lookup_ticket(payload):
+        return TicketLookupResult(
             success=False,
             error="The incident service is currently unavailable.",
-        ),
+        )
+
+    monkeypatch.setattr(
+        "services.agent.nodes.lookup_ticket",
+        fake_lookup_ticket,
     )
 
     recorded = {}
@@ -424,7 +430,7 @@ def test_ticket_tool_failure_routes_to_fallback(
         fake_record_trace,
     )
 
-    result = agent_graph_module.run_agent(
+    result = await agent_graph_module.run_agent(
         "What is the status of ticket 482?"
     )
 

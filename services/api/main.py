@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services.api.routes.agent import router as agent_router
 from services.api.routes.knowledge import router as knowledge_router
+from services.api.routes.incidents import router as incidents_router
+from services.api.routes.inventory import router as inventory_router
 
 
 app = FastAPI(
@@ -26,6 +28,8 @@ app.add_middleware(
 
 app.include_router(knowledge_router)
 app.include_router(agent_router)
+app.include_router(incidents_router)
+app.include_router(inventory_router)
 
 
 @app.get("/health")

@@ -95,8 +95,8 @@ def build_graph():
 agent_graph = build_graph()
 
 
-def run_agent(question: str) -> AgentState:
-    """Run the compiled graph and persist a structured trace."""
+async def run_agent(question: str) -> AgentState:
+    """Run the compiled graph asynchronously and persist a structured trace."""
     run_id = str(uuid4())
 
     initial_state: AgentState = {
@@ -113,7 +113,7 @@ def run_agent(question: str) -> AgentState:
     events: list[dict] = []
     final_state: AgentState = initial_state.copy()
 
-    for event in agent_graph.stream(
+    async for event in agent_graph.astream(
         initial_state,
         config=config,
         stream_mode="updates",

@@ -1,21 +1,37 @@
-"""External tools used by the TrackFlow support agent."""
+"""MCP-backed external tools used by the TrackFlow support agent."""
 
 from __future__ import annotations
 
 import os
+
+import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 from datetime import datetime
 from typing import Literal
 
-import httpx
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, ValidationError
 
 
-INCIDENT_API_BASE_URL = os.getenv(
-    "INCIDENT_API_BASE_URL",
-    "http://localhost:8000",
-).rstrip("/")
+MCP_SERVER_URL = os.getenv(
+    "MCP_SERVER_URL",
+    "http://localhost:8001/mcp",
+)
 
-INCIDENT_API_TIMEOUT_SECONDS = 5.0
+MCP_OAUTH_TOKEN_URL = os.getenv(
+    "MCP_OAUTH_TOKEN_URL",
+    "http://localhost:9000/realms/trackflow/protocol/openid-connect/token",
+)
+MCP_OAUTH_CLIENT_ID = os.getenv(
+    "MCP_OAUTH_CLIENT_ID",
+    "trackflow-mcp-client",
+)
+MCP_OAUTH_CLIENT_SECRET = os.getenv(
+    "MCP_OAUTH_CLIENT_SECRET",
+    "",
+)
 
 
 class TicketLookupInput(BaseModel):
@@ -25,7 +41,7 @@ class TicketLookupInput(BaseModel):
 
 
 class IncidentRecord(BaseModel):
-    """Incident fields returned by the existing TrackFlow incident service."""
+    """Incident fields returned by the TrackFlow MCP server."""
 
     id: int
     title: str
@@ -52,54 +68,108 @@ class TicketLookupResult(BaseModel):
     error: str | None = None
 
 
-def lookup_ticket(payload: TicketLookupInput) -> TicketLookupResult:
-    """Read the current incident directly from the existing incident manager."""
-    url = f"{INCIDENT_API_BASE_URL}/api/incidents/{payload.incident_id}"
+async def _get_access_token() -> str:
+    """Request a least-privilege incidents:read OAuth access token."""
 
-    try:
-        response = httpx.get(
-            url,
-            timeout=INCIDENT_API_TIMEOUT_SECONDS,
+    if not MCP_OAUTH_CLIENT_SECRET:
+        raise RuntimeError("The MCP OAuth client secret is not configured.")
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.post(
+            MCP_OAUTH_TOKEN_URL,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": MCP_OAUTH_CLIENT_ID,
+                "client_secret": MCP_OAUTH_CLIENT_SECRET,
+                "scope": "incidents:read",
+            },
         )
 
-        if response.status_code == 404:
+    response.raise_for_status()
+
+    token = response.json().get("access_token")
+
+    if not token:
+        raise RuntimeError("The OAuth server did not return an access token.")
+
+    return token
+
+
+def _build_mcp_client(access_token: str) -> MultiServerMCPClient:
+    """Create the authenticated TrackFlow MCP client used by the agent."""
+
+    return MultiServerMCPClient(
+        {
+            "trackflow": {
+                "transport": "streamable_http",
+                "url": MCP_SERVER_URL,
+                "headers": {
+                    "Authorization": f"Bearer {access_token}",
+                },
+            }
+        }
+    )
+
+async def lookup_ticket(payload: TicketLookupInput) -> TicketLookupResult:
+    """Read current incident data through the OAuth-protected MCP server."""
+
+    try:
+        access_token = await _get_access_token()
+        client = _build_mcp_client(access_token)
+
+        tools = await client.get_tools(server_name="trackflow")
+
+        get_incident_tool = next(
+            (tool for tool in tools if tool.name == "get_incident"),
+            None,
+        )
+
+        if get_incident_tool is None:
             return TicketLookupResult(
                 success=False,
-                error=f"Incident {payload.incident_id} was not found.",
+                error="The MCP server did not expose the get_incident tool.",
             )
 
-        response.raise_for_status()
+        result = await get_incident_tool.ainvoke(
+            {"incident_id": payload.incident_id}
+        )
 
-        incident = IncidentRecord.model_validate(response.json())
+        if isinstance(result, dict):
+            incident_data = result
+        elif hasattr(result, "content"):
+            incident_data = result.content
+        else:
+            incident_data = result
+
+        if isinstance(incident_data, list):
+            if not incident_data:
+                return TicketLookupResult(
+                    success=False,
+                    error="The MCP server returned an empty incident response.",
+                )
+
+            first = incident_data[0]
+
+            if hasattr(first, "text"):
+                import json
+
+                incident_data = json.loads(first.text)
+
+        incident = IncidentRecord.model_validate(incident_data)
 
         return TicketLookupResult(
             success=True,
             incident=incident,
         )
 
-    except httpx.TimeoutException:
+    except ValidationError:
         return TicketLookupResult(
             success=False,
-            error="The incident service timed out.",
+            error="The MCP server returned an invalid incident response.",
         )
 
-    except httpx.RequestError:
+    except Exception as error:
         return TicketLookupResult(
             success=False,
-            error="The incident service is currently unavailable.",
-        )
-
-    except httpx.HTTPStatusError as error:
-        return TicketLookupResult(
-            success=False,
-            error=(
-                "The incident service returned an unexpected "
-                f"HTTP {error.response.status_code} response."
-            ),
-        )
-
-    except (ValidationError, ValueError):
-        return TicketLookupResult(
-            success=False,
-            error="The incident service returned an invalid response.",
+            error=f"The MCP incident lookup failed: {error}",
         )

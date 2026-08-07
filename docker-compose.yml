@@ -9,5 +9,16 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    container_name: trackflow-keycloak
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "9000:8080"
+    restart: unless-stopped
+
 volumes:
   qdrant_storage:

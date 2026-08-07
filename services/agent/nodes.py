@@ -93,8 +93,8 @@ def retrieve_context_node(state: AgentState) -> AgentState:
     }
 
 
-def ticket_lookup_node(state: AgentState) -> AgentState:
-    """Query the existing incident manager for current ticket data."""
+async def ticket_lookup_node(state: AgentState) -> AgentState:
+    """Query current ticket data through the TrackFlow MCP server."""
     incident_id = state.get("incident_id")
 
     if incident_id is None:
@@ -103,7 +103,7 @@ def ticket_lookup_node(state: AgentState) -> AgentState:
             "error": "No incident ID was provided for ticket lookup.",
         }
 
-    result = lookup_ticket(
+    result = await lookup_ticket(
         TicketLookupInput(
             incident_id=incident_id,
         )
