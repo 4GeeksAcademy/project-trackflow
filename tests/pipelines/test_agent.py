@@ -44,7 +44,7 @@ async def test_invalid_question_stops_before_retrieval(
 async def test_valid_question_retrieves_then_generates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A grounded question should follow retrieve -> generate."""
+    """A grounded question should follow guard -> retrieve -> generate."""
     retrieved_chunks = [
         {
             "id": "point-1",
@@ -96,6 +96,7 @@ async def test_valid_question_retrieves_then_generates(
 
     assert executed_nodes == [
         "validate_question",
+        "guard_input",
         "route_request",
         "retrieve_context",
         "generate_answer",
@@ -148,6 +149,7 @@ async def test_no_context_uses_safe_fallback(
 
     assert executed_nodes == [
         "validate_question",
+        "guard_input",
         "route_request",
         "retrieve_context",
         "no_context",
@@ -258,6 +260,7 @@ async def test_checkpoint_can_be_inspected_after_run(
     )
     assert "30 days from delivery" in checkpoint.values["context"]
 
+
 async def test_ticket_question_routes_to_live_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -324,6 +327,7 @@ async def test_ticket_question_routes_to_live_tool(
 
     assert executed_nodes == [
         "validate_question",
+        "guard_input",
         "route_request",
         "ticket_lookup",
         "generate_ticket_answer",
@@ -395,6 +399,7 @@ async def test_policy_question_routes_to_rag(
 
     assert executed_nodes == [
         "validate_question",
+        "guard_input",
         "route_request",
         "retrieve_context",
         "generate_answer",
@@ -447,6 +452,7 @@ async def test_ticket_tool_failure_routes_to_fallback(
 
     assert executed_nodes == [
         "validate_question",
+        "guard_input",
         "route_request",
         "ticket_lookup",
         "ticket_fallback",

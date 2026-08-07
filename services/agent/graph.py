@@ -11,8 +11,10 @@ from services.agent.nodes import (
     generate_answer_node,
     generate_combined_answer_node,
     generate_ticket_answer_node,
+    guard_input_node,
     no_context_node,
     retrieve_context_node,
+    route_after_guard,
     route_after_request,
     route_after_retrieval,
     route_after_ticket_lookup,
@@ -31,6 +33,7 @@ def build_graph():
     builder = StateGraph(AgentState)
 
     builder.add_node("validate_question", validate_question_node)
+    builder.add_node("guard_input", guard_input_node)
     builder.add_node("route_request", route_request_node)
     builder.add_node("retrieve_context", retrieve_context_node)
     builder.add_node("ticket_lookup", ticket_lookup_node)
@@ -46,8 +49,17 @@ def build_graph():
         "validate_question",
         route_after_validation,
         {
-            "valid": "route_request",
+            "valid": "guard_input",
             "invalid": END,
+        },
+    )
+
+    builder.add_conditional_edges(
+        "guard_input",
+        route_after_guard,
+        {
+            "allowed": "route_request",
+            "blocked": END,
         },
     )
 
@@ -95,13 +107,31 @@ def build_graph():
 agent_graph = build_graph()
 
 
-async def run_agent(question: str) -> AgentState:
+async def run_agent(
+    question: str,
+    authenticated_user: dict | None = None,
+) -> AgentState:
     """Run the compiled graph asynchronously and persist a structured trace."""
     run_id = str(uuid4())
+
+    if authenticated_user is None:
+        authenticated_user = {
+            "id": "test-user",
+            "uuid": "test-user",
+        }
+
+    authenticated_user_id = str(authenticated_user["id"])
+    authenticated_user_uuid = str(
+        authenticated_user.get("uuid")
+        or authenticated_user.get("user_uuid")
+        or authenticated_user["id"]
+    )
 
     initial_state: AgentState = {
         "question": question,
         "run_id": run_id,
+        "authenticated_user_id": authenticated_user_id,
+        "authenticated_user_uuid": authenticated_user_uuid,
     }
 
     config = {

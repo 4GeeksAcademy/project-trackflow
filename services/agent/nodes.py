@@ -12,6 +12,7 @@ from data.pipelines.rag import (
     generate_answer,
     retrieve,
 )
+from services.agent.guardrails import evaluate_input
 from services.agent.state import AgentState
 from services.agent.tools import TicketLookupInput, lookup_ticket
 
@@ -36,6 +37,19 @@ def validate_question_node(state: AgentState) -> AgentState:
     return {
         "question": question,
         "error": None,
+    }
+
+
+def guard_input_node(state: AgentState) -> AgentState:
+    """Apply deterministic scope, content, and anti-injection guardrails."""
+    decision = evaluate_input(state["question"])
+
+    return {
+        "guardrail_allowed": decision.allowed,
+        "guardrail_category": decision.category,
+        "guardrail_reason": decision.reason,
+        "guardrail_response": decision.response,
+        "answer": decision.response if not decision.allowed else None,
     }
 
 
@@ -195,6 +209,14 @@ def route_after_validation(state: AgentState) -> str:
         return "invalid"
 
     return "valid"
+
+
+def route_after_guard(state: AgentState) -> str:
+    """Route blocked requests directly to the end."""
+    if not state.get("guardrail_allowed", True):
+        return "blocked"
+
+    return "allowed"
 
 
 def route_after_request(state: AgentState) -> str:
