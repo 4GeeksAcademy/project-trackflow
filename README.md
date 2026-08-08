@@ -471,3 +471,19 @@ Do not use `pip install` directly for this monorepo.
 This project is part of the 4Geeks Academy AI Engineering Career Program.
 
 The repository builds progressively on the TrackFlow company project, including backend services, inventory management, RAG, LangGraph agents, and MCP-based external tool integration.
+
+## RFP intake setup
+
+The RFP intake pipeline uses `py-readability-metrics`, which requires the NLTK `punkt_tab` tokenizer data.
+
+After installing dependencies with:
+
+```bash
+uv sync
+```
+
+Then download the required tokenizer data:
+
+```bash
+uv run python -m nltk.downloader punkt_tab
+```
