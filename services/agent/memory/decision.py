@@ -20,6 +20,7 @@ class DecisionPayload(BaseModel):
     decision: MemoryDecision
     edited_content: str | None = None
     confidence: float
+    follow_up_question: str | None = None
 
 
 def classify_memory_decision(
@@ -46,13 +47,18 @@ Rules:
   clearly refer to the pending memory request.
 - If the user corrects the fact, use edit and return the corrected durable fact.
 - If confidence is below 0.80, classify as ambiguous.
+- If the same message both resolves the proposal AND asks a separate new
+  question/request, copy only that separate request into follow_up_question.
+- Do not put the approval/rejection/edit wording into follow_up_question.
+- If there is no separate request, follow_up_question must be null.
 - Return JSON only.
 
 Exact output:
 {
   "decision": "approve" | "reject" | "edit" | "ambiguous" | "unrelated",
   "edited_content": "corrected fact" | null,
-  "confidence": 0.0
+  "confidence": 0.0,
+  "follow_up_question": "separate new request from the same message" | null
 }
 """.strip()
 
@@ -86,6 +92,7 @@ Classify only the user's decision about this pending proposal.
             decision=MemoryDecision.AMBIGUOUS,
             edited_content=None,
             confidence=0.0,
+            follow_up_question=None,
         )
 
     try:
@@ -95,6 +102,7 @@ Classify only the user's decision about this pending proposal.
             decision=MemoryDecision.AMBIGUOUS,
             edited_content=None,
             confidence=0.0,
+            follow_up_question=None,
         )
 
     if payload.confidence < 0.80:
@@ -102,6 +110,7 @@ Classify only the user's decision about this pending proposal.
             decision=MemoryDecision.AMBIGUOUS,
             edited_content=None,
             confidence=payload.confidence,
+            follow_up_question=None,
         )
 
     if (
@@ -112,10 +121,16 @@ Classify only the user's decision about this pending proposal.
             decision=MemoryDecision.AMBIGUOUS,
             edited_content=None,
             confidence=payload.confidence,
+            follow_up_question=None,
         )
 
     return MemoryDecisionResult(
         decision=payload.decision,
         edited_content=payload.edited_content,
         confidence=payload.confidence,
+        follow_up_question=(
+            payload.follow_up_question.strip()
+            if payload.follow_up_question
+            else None
+        ),
     )

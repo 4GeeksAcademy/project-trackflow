@@ -1,4 +1,4 @@
-"""LLM-backed self-evaluation for TrackFlow agent memory."""
+"""Single-call answer generation and memory self-evaluation for TrackFlow."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from services.agent.memory.models import MemoryProposal, MemoryType
 
 
 class MemoryEvaluation(BaseModel):
-    """Structured result of the agent's memory self-evaluation."""
+    """Structured memory proposal returned with the visible answer."""
 
     should_propose: bool
     memory_type: MemoryType | None = None
@@ -22,60 +22,99 @@ class MemoryEvaluation(BaseModel):
     reason: str
 
 
-def evaluate_for_memory(
+class AgentGeneration(BaseModel):
+    """One model response containing the answer and memory evaluation."""
+
+    answer: str
+    memory_proposal: MemoryEvaluation
+
+
+def generate_with_memory(
     *,
     question: str,
-    answer: str,
+    context: str,
     conversation_id: str,
-) -> MemoryProposal | None:
-    """Evaluate whether the current interaction is worth remembering."""
+) -> tuple[str, MemoryProposal | None]:
+    """Generate the user answer and memory proposal in one model call."""
+
+    cleaned_question = question.strip()
+    cleaned_context = context.strip()
+
+    if not cleaned_question:
+        raise ValueError("Question cannot be empty.")
 
     system_prompt = """
-You are the memory self-evaluation step for TrackFlow's existing support agent.
+You are TrackFlow's support assistant.
 
-Decide whether the current interaction contains durable information that would
-help future support conversations.
+You must perform TWO tasks in ONE response:
 
-TrackFlow permits proposals ONLY for:
+1. Produce the normal answer the user should see.
+2. Self-evaluate whether the interaction contains something worth remembering.
+
+ANSWER RULES
+
+Use only the supplied TrackFlow context for operational or policy claims.
+Never invent conditions, discounts, carrier exceptions, percentages, rates,
+compensation, delivery times, approval rules, or operational facts.
+
+Mandatory TrackFlow business constraints:
+- Never promise a delivery SLA during declared high-demand dates such as
+  Black Friday, Christmas, or January Sales in Spain.
+- International returns are not automatic and require manual handling by
+  Sofía Ramos's team.
+- Storage discounts or preferential rates require Miguel Torres's approval.
+- Manual carrier selection is only an exception approved by Carlos Vega.
+- If supplied context does not support a requested condition, say that
+  confirmation is required rather than guessing.
+
+Keep the visible answer concise, accurate, and helpful.
+
+MEMORY RULES
+
+A memory proposal is appropriate ONLY for:
 1. corrected carrier assignment or coverage rules;
 2. context explaining a known recurring incident or repeated incident pattern;
 3. recurring B2B client preferences for monthly reports.
 
 Never propose memory for:
 - exact B2C end-customer addresses;
-- exact B2B sensitive location information;
+- sensitive B2B location information;
 - internal warehouse routes or physical-security information;
 - a single non-repeating package incident;
 - active commercial contract negotiations;
 - conversation closings;
-- translation or other single-use tasks.
+- translations or other single-use tasks.
 
-A proposal is only a candidate. It is NOT authorization to persist anything.
+Do not assume an incident is recurring unless the interaction actually
+indicates repetition.
 
-Return JSON only with this exact structure:
+A memory proposal is only a candidate. It does NOT authorize persistence.
+
+Return JSON only in this exact structure:
+
 {
-  "should_propose": true or false,
-  "memory_type": "carrier_rule" | "recurring_incident" |
-                 "b2b_report_preference" | null,
-  "content": "concise durable fact" | null,
-  "country": "US" | "ES" | null,
-  "carrier": "carrier name" | null,
-  "b2b_client": "client identifier/name" | null,
-  "reason": "brief explanation"
+  "answer": "the normal answer the user should see",
+  "memory_proposal": {
+    "should_propose": true or false,
+    "memory_type": "carrier_rule" | "recurring_incident" |
+                   "b2b_report_preference" | null,
+    "content": "concise durable fact" | null,
+    "country": "US" | "ES" | null,
+    "carrier": "carrier name" | null,
+    "b2b_client": "client name or identifier" | null,
+    "reason": "brief explanation"
+  }
 }
-
-If the information is not clearly memorable, set should_propose to false.
-Do not assume repetition unless the interaction actually indicates it.
 """.strip()
 
     user_prompt = f"""
 User message:
-{question}
+{cleaned_question}
 
-Agent response:
-{answer}
+Available TrackFlow context:
+{cleaned_context or "No additional approved context was available."}
 
-Evaluate this interaction for persistent TrackFlow memory.
+Generate the answer and memory self-evaluation together.
 """.strip()
 
     response = _openai_client().chat.completions.create(
@@ -91,32 +130,43 @@ Evaluate this interaction for persistent TrackFlow memory.
     raw = response.choices[0].message.content
 
     if not raw:
-        return None
+        raise RuntimeError("The generation model returned an empty response.")
 
     try:
-        evaluation = MemoryEvaluation.model_validate(json.loads(raw))
-    except (json.JSONDecodeError, ValueError):
-        # Memory is fail-closed: malformed evaluation never creates memory.
-        return None
+        generation = AgentGeneration.model_validate(json.loads(raw))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(
+            "The generation model returned invalid structured output."
+        ) from exc
+
+    answer = generation.answer.strip()
+
+    if not answer:
+        raise RuntimeError("The generation model returned an empty answer.")
+
+    evaluation = generation.memory_proposal
 
     if (
         not evaluation.should_propose
         or evaluation.memory_type is None
         or not evaluation.content
     ):
-        return None
+        return answer, None
 
     country = evaluation.country
+
     if country not in {"US", "ES"}:
         country = None
 
-    return MemoryProposal(
+    proposal = MemoryProposal(
         conversation_id=conversation_id,
         memory_type=evaluation.memory_type,
         content=evaluation.content.strip(),
         country=country,
         carrier=evaluation.carrier,
         b2b_client=evaluation.b2b_client,
-        originating_message=question,
+        originating_message=cleaned_question,
         reason=evaluation.reason,
     )
+
+    return answer, proposal

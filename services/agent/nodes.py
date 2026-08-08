@@ -13,10 +13,11 @@ from data.pipelines.rag import (
     retrieve,
 )
 from services.agent.memory.decision import classify_memory_decision
-from services.agent.memory.evaluator import evaluate_for_memory
+from services.agent.memory.evaluator import generate_with_memory
 from services.agent.memory.models import (
     MemoryAuditRecord,
     MemoryDecision,
+    MemoryProposal,
     ProposalStatus,
 )
 from services.agent.memory.policy import validate_memory_proposal
@@ -170,10 +171,11 @@ def no_context_node(state: AgentState) -> AgentState:
 
 
 def generate_answer_node(state: AgentState) -> AgentState:
-    """Generate from context already produced by the retrieval node."""
+    """Generate the answer and memory proposal in one model call."""
     question = state["question"]
     context = state.get("context", "")
     memory_context = state.get("memory_context", "")
+    conversation_id = state["conversation_id"]
 
     combined_context = "\n\n".join(
         part
@@ -181,10 +183,19 @@ def generate_answer_node(state: AgentState) -> AgentState:
         if part
     )
 
-    answer = generate_answer(question, combined_context)
+    answer, proposal = generate_with_memory(
+        question=question,
+        context=combined_context,
+        conversation_id=conversation_id,
+    )
 
     return {
         "answer": answer,
+        "memory_proposal": (
+            proposal.model_dump(mode="json")
+            if proposal is not None
+            else None
+        ),
     }
 
 
@@ -238,13 +249,19 @@ def generate_combined_answer_node(state: AgentState) -> AgentState:
         f"{context}"
     )
 
-    answer = generate_answer(
-        state["question"],
-        combined_context,
+    answer, proposal = generate_with_memory(
+        question=state["question"],
+        context=combined_context,
+        conversation_id=state["conversation_id"],
     )
 
     return {
         "answer": answer,
+        "memory_proposal": (
+            proposal.model_dump(mode="json")
+            if proposal is not None
+            else None
+        ),
     }
 
 
@@ -294,6 +311,16 @@ def resolve_pending_memory_node(state: AgentState) -> AgentState:
 
         store.discard_pending(conversation_id)
 
+        if decision.follow_up_question:
+            return {
+                "question": decision.follow_up_question,
+                "memory_notice": (
+                    "Got it. I saved that for future TrackFlow conversations."
+                ),
+                "memory_status": "approved_followup",
+                "memory_decision": decision.model_dump(mode="json"),
+            }
+
         return {
             "answer": "Got it. I saved that for future TrackFlow conversations.",
             "memory_status": "approved",
@@ -314,6 +341,14 @@ def resolve_pending_memory_node(state: AgentState) -> AgentState:
         )
 
         store.discard_pending(conversation_id)
+
+        if decision.follow_up_question:
+            return {
+                "question": decision.follow_up_question,
+                "memory_notice": "Understood. I did not save that.",
+                "memory_status": "rejected_followup",
+                "memory_decision": decision.model_dump(mode="json"),
+            }
 
         return {
             "answer": "Understood. I did not save that.",
@@ -372,6 +407,17 @@ def resolve_pending_memory_node(state: AgentState) -> AgentState:
 
         store.discard_pending(conversation_id)
 
+        if decision.follow_up_question:
+            return {
+                "question": decision.follow_up_question,
+                "memory_notice": (
+                    "Got it. I saved the corrected version for future "
+                    "TrackFlow conversations."
+                ),
+                "memory_status": "edited_followup",
+                "memory_decision": decision.model_dump(mode="json"),
+            }
+
         return {
             "answer": (
                 "Got it. I saved the corrected version for future "
@@ -414,29 +460,26 @@ def resolve_pending_memory_node(state: AgentState) -> AgentState:
 
 
 def memory_evaluation_node(state: AgentState) -> AgentState:
-    """Self-evaluate the completed interaction for durable TrackFlow memory."""
+    """Validate and present the proposal already produced with the answer."""
 
-    question = state.get("question", "").strip()
     answer = state.get("answer", "").strip()
-    conversation_id = state.get("conversation_id", "").strip()
+    raw_proposal = state.get("memory_proposal")
+    memory_notice = state.get("memory_notice", "").strip()
 
-    if not question or not answer or not conversation_id:
-        return {
-            "memory_proposal": None,
-            "memory_status": "not_proposed",
-        }
-
-    proposal = evaluate_for_memory(
-        question=question,
-        answer=answer,
-        conversation_id=conversation_id,
+    visible_answer = (
+        f"{memory_notice}\n\n{answer}"
+        if memory_notice and answer
+        else memory_notice or answer
     )
 
-    if proposal is None:
+    if not answer or raw_proposal is None:
         return {
+            "answer": visible_answer,
             "memory_proposal": None,
             "memory_status": "not_proposed",
         }
+
+    proposal = MemoryProposal.model_validate(raw_proposal)
 
     policy_result = validate_memory_proposal(proposal)
     store = MemoryStore()
@@ -454,14 +497,26 @@ def memory_evaluation_node(state: AgentState) -> AgentState:
         )
 
         return {
+            "answer": visible_answer,
             "memory_proposal": None,
             "memory_status": "blocked",
         }
 
+    store.append_audit(
+        MemoryAuditRecord(
+            proposal_id=proposal.proposal_id,
+            conversation_id=proposal.conversation_id,
+            proposed_memory=proposal.content,
+            originating_message=proposal.originating_message,
+            outcome=ProposalStatus.PENDING,
+            proposed_at=proposal.created_at,
+        )
+    )
+
     store.save_pending(proposal)
 
     confirmation_prompt = (
-        f'{answer}\n\n'
+        f'{visible_answer}\n\n'
         f'I noticed something that may be useful in future conversations: '
         f'"{proposal.content}" '
         f'Would you like me to remember this for next time?'
@@ -474,14 +529,18 @@ def memory_evaluation_node(state: AgentState) -> AgentState:
     }
 
 
-
-
 def route_after_pending_memory(state: AgentState) -> str:
     """Decide whether to continue normally after checking pending memory."""
 
     status = state.get("memory_status")
 
-    if status in {"no_pending", "discarded_unrelated"}:
+    if status in {
+        "no_pending",
+        "discarded_unrelated",
+        "approved_followup",
+        "rejected_followup",
+        "edited_followup",
+    }:
         return "continue"
 
     return "resolved"

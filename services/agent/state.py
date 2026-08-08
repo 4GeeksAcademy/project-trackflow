@@ -23,6 +23,7 @@ class AgentState(TypedDict, total=False):
     memory_proposal: dict[str, Any] | None
     memory_decision: dict[str, Any] | None
     memory_status: str | None
+    memory_notice: str
 
     recalled_memories: list[dict[str, Any]]
     memory_context: str

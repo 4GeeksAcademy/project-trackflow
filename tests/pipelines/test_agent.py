@@ -64,9 +64,10 @@ async def test_valid_question_retrieves_then_generates(
     )
 
     monkeypatch.setattr(
-        "services.agent.nodes.generate_answer",
-        lambda question, context: (
-            "The standard return window is 30 days from delivery."
+        "services.agent.nodes.generate_with_memory",
+        lambda **kwargs: (
+            "The standard return window is 30 days from delivery.",
+            None,
         ),
     )
 
@@ -232,9 +233,10 @@ async def test_checkpoint_can_be_inspected_after_run(
     )
 
     monkeypatch.setattr(
-        "services.agent.nodes.generate_answer",
-        lambda question, context: (
-            "The standard return window is 30 days from delivery."
+        "services.agent.nodes.generate_with_memory",
+        lambda **kwargs: (
+            "The standard return window is 30 days from delivery.",
+            None,
         ),
     )
 
@@ -362,9 +364,10 @@ async def test_policy_question_routes_to_rag(
     )
 
     monkeypatch.setattr(
-        "services.agent.nodes.generate_answer",
-        lambda question, context: (
-            "The standard return window is 30 days from delivery."
+        "services.agent.nodes.generate_with_memory",
+        lambda **kwargs: (
+            "The standard return window is 30 days from delivery.",
+            None,
         ),
     )
 

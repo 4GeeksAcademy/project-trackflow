@@ -143,6 +143,7 @@ async def run_agent(
         "memory_proposal": None,
         "memory_decision": None,
         "memory_status": None,
+        "memory_notice": "",
         "recalled_memories": [],
         "memory_context": "",
     }

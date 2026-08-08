@@ -232,17 +232,12 @@ def test_memory_evaluation_node_returns_no_proposal(
     """Non-memorable interactions should not create pending memory."""
     from services.agent import nodes
 
-    monkeypatch.setattr(
-        nodes,
-        "evaluate_for_memory",
-        lambda **kwargs: None,
-    )
-
     result = nodes.memory_evaluation_node(
         {
             "question": "Great, that's resolved.",
             "answer": "Glad I could help.",
             "conversation_id": "conversation-none",
+            "memory_proposal": None,
         }
     )
 
@@ -268,11 +263,6 @@ def test_memory_evaluation_node_saves_allowed_proposal(
 
     monkeypatch.setattr(
         nodes,
-        "evaluate_for_memory",
-        lambda **kwargs: proposal,
-    )
-    monkeypatch.setattr(
-        nodes,
         "MemoryStore",
         lambda: store,
     )
@@ -282,6 +272,7 @@ def test_memory_evaluation_node_saves_allowed_proposal(
             "question": proposal.originating_message,
             "answer": "Thanks for the correction.",
             "conversation_id": proposal.conversation_id,
+            "memory_proposal": proposal.model_dump(mode="json"),
         }
     )
 
@@ -314,11 +305,6 @@ def test_memory_evaluation_node_blocks_forbidden_proposal(
 
     monkeypatch.setattr(
         nodes,
-        "evaluate_for_memory",
-        lambda **kwargs: proposal,
-    )
-    monkeypatch.setattr(
-        nodes,
         "MemoryStore",
         lambda: store,
     )
@@ -328,6 +314,7 @@ def test_memory_evaluation_node_blocks_forbidden_proposal(
             "question": proposal.originating_message,
             "answer": "I understand.",
             "conversation_id": proposal.conversation_id,
+            "memory_proposal": proposal.model_dump(mode="json"),
         }
     )
 
@@ -804,3 +791,127 @@ def test_cleanup_keeps_nonexpired_memory_active() -> None:
 
         assert len(active) == 1
         assert active[0].active is True
+
+
+def test_approval_with_follow_up_continues_conversation(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Approval plus a new question should save memory and continue."""
+    from services.agent import nodes
+
+    store = MemoryStore(tmp_path)
+    proposal = build_proposal(
+        conversation_id="conv-approve-followup",
+    )
+    store.save_pending(proposal)
+
+    monkeypatch.setattr(nodes, "MemoryStore", lambda: store)
+    monkeypatch.setattr(
+        nodes,
+        "classify_memory_decision",
+        lambda **kwargs: MemoryDecisionResult(
+            decision=MemoryDecision.APPROVE,
+            confidence=0.99,
+            follow_up_question="What is the standard return policy?",
+        ),
+    )
+
+    result = nodes.resolve_pending_memory_node(
+        {
+            "conversation_id": "conv-approve-followup",
+            "question": (
+                "Yes, remember that. "
+                "Also, what is the standard return policy?"
+            ),
+        }
+    )
+
+    assert result["memory_status"] == "approved_followup"
+    assert result["question"] == "What is the standard return policy?"
+    assert "saved that" in result["memory_notice"]
+    assert len(store.list_memories()) == 1
+    assert store.get_pending("conv-approve-followup") is None
+
+    assert nodes.route_after_pending_memory(result) == "continue"
+
+
+def test_rejection_with_follow_up_continues_without_saving(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Rejection plus a new question should continue without persistence."""
+    from services.agent import nodes
+
+    store = MemoryStore(tmp_path)
+    proposal = build_proposal(
+        conversation_id="conv-reject-followup",
+    )
+    store.save_pending(proposal)
+
+    monkeypatch.setattr(nodes, "MemoryStore", lambda: store)
+    monkeypatch.setattr(
+        nodes,
+        "classify_memory_decision",
+        lambda **kwargs: MemoryDecisionResult(
+            decision=MemoryDecision.REJECT,
+            confidence=0.99,
+            follow_up_question="What is the standard return policy?",
+        ),
+    )
+
+    result = nodes.resolve_pending_memory_node(
+        {
+            "conversation_id": "conv-reject-followup",
+            "question": (
+                "No, don't remember that. "
+                "What is the standard return policy?"
+            ),
+        }
+    )
+
+    assert result["memory_status"] == "rejected_followup"
+    assert result["question"] == "What is the standard return policy?"
+    assert "did not save" in result["memory_notice"]
+    assert store.list_memories() == []
+    assert store.get_pending("conv-reject-followup") is None
+
+    assert nodes.route_after_pending_memory(result) == "continue"
+
+
+def test_pending_proposal_is_logged_when_created(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Creating a pending proposal must immediately leave an audit record."""
+    from services.agent import nodes
+
+    store = MemoryStore(tmp_path)
+
+    proposal = build_proposal(
+        conversation_id="conv-proposal-audit",
+        content="SEUR no longer covers rural Zaragoza.",
+        country="ES",
+        carrier="SEUR",
+    )
+
+    monkeypatch.setattr(nodes, "MemoryStore", lambda: store)
+
+    result = nodes.memory_evaluation_node(
+        {
+            "question": proposal.originating_message,
+            "answer": "Thanks for the correction.",
+            "conversation_id": proposal.conversation_id,
+            "memory_proposal": proposal.model_dump(mode="json"),
+        }
+    )
+
+    assert result["memory_status"] == "pending"
+
+    audit = store.list_audit_records()
+
+    assert len(audit) == 1
+    assert audit[0].proposal_id == proposal.proposal_id
+    assert audit[0].outcome == ProposalStatus.PENDING
+    assert audit[0].originating_message == proposal.originating_message
+    assert audit[0].proposed_at == proposal.created_at
