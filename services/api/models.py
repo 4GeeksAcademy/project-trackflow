@@ -1,10 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from sqlalchemy import Column, JSON, UniqueConstraint
 from sqlmodel import Field as SQLField
 from sqlmodel import Relationship, SQLModel
 
+
+# ---------------------------------------------------------------------------
+# Existing supplier models
+# ---------------------------------------------------------------------------
 
 VALID_CATEGORIES = [
     "carrier_last_mile",
@@ -63,9 +69,14 @@ class StatusUpdate(BaseModel):
     status: Literal["active", "suspended"]
 
 
+# ---------------------------------------------------------------------------
+# Existing incident models
+# ---------------------------------------------------------------------------
+
 class IncidentBase(BaseModel):
     title: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
+
     category: Literal[
         "lost_parcel",
         "delivery_failure",
@@ -77,8 +88,20 @@ class IncidentBase(BaseModel):
         "client_complaint",
         "other",
     ]
-    status: Literal["open", "in_progress", "resolved", "discarded"]
-    origin: Literal["customer", "branch", "internal"]
+
+    status: Literal[
+        "open",
+        "in_progress",
+        "resolved",
+        "discarded",
+    ]
+
+    origin: Literal[
+        "customer",
+        "branch",
+        "internal",
+    ]
+
     branch: Literal[
         "central",
         "la_warehouse",
@@ -99,8 +122,17 @@ class Incident(IncidentBase):
 
 
 class IncidentStatusUpdate(BaseModel):
-    status: Literal["open", "in_progress", "resolved", "discarded"]
+    status: Literal[
+        "open",
+        "in_progress",
+        "resolved",
+        "discarded",
+    ]
 
+
+# ---------------------------------------------------------------------------
+# Existing inventory SQLModel tables
+# ---------------------------------------------------------------------------
 
 class SKU(SQLModel, table=True):
     id: int | None = SQLField(default=None, primary_key=True)
@@ -110,8 +142,12 @@ class SKU(SQLModel, table=True):
     category: str
     warehouse: str
 
-    stock_entries: list["StockEntry"] = Relationship(back_populates="sku_item")
-    stock_exits: list["StockExit"] = Relationship(back_populates="sku_item")
+    stock_entries: list["StockEntry"] = Relationship(
+        back_populates="sku_item"
+    )
+    stock_exits: list["StockExit"] = Relationship(
+        back_populates="sku_item"
+    )
 
 
 class StockEntry(SQLModel, table=True):
@@ -123,7 +159,9 @@ class StockEntry(SQLModel, table=True):
     created_at: datetime = SQLField(default_factory=datetime.utcnow)
     user_uuid: str
 
-    sku_item: SKU | None = Relationship(back_populates="stock_entries")
+    sku_item: SKU | None = Relationship(
+        back_populates="stock_entries"
+    )
 
 
 class StockExit(SQLModel, table=True):
@@ -136,4 +174,146 @@ class StockExit(SQLModel, table=True):
     created_at: datetime = SQLField(default_factory=datetime.utcnow)
     user_uuid: str
 
-    sku_item: SKU | None = Relationship(back_populates="stock_exits")
+    sku_item: SKU | None = Relationship(
+        back_populates="stock_exits"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Milestone 9 Part 1 — RFP intake SQLModel tables
+# ---------------------------------------------------------------------------
+
+class RFP(SQLModel, table=True):
+    """
+    Persisted metadata for a valid TrackFlow RFP.
+
+    Business metadata should only be trusted after the document has been
+    classified as a legitimate TrackFlow RFP.
+    """
+
+    __tablename__ = "rfps"
+
+    rfp_id: str = SQLField(
+        default_factory=lambda: str(uuid4()),
+        primary_key=True,
+    )
+
+    client_name: str | None = None
+    client_country: str | None = None
+
+    services_requested: list[str] = SQLField(
+        default_factory=list,
+        sa_column=Column(JSON),
+    )
+
+    monthly_volume: int | None = None
+    deadline: date | None = None
+    budget_range: str | None = None
+
+    departments_needed: list[str] = SQLField(
+        default_factory=list,
+        sa_column=Column(JSON),
+    )
+
+    readability_metrics: dict = SQLField(
+        default_factory=dict,
+        sa_column=Column(JSON),
+    )
+
+    intake_summary: dict = SQLField(
+        default_factory=dict,
+        sa_column=Column(JSON),
+    )
+
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+class Ticket(SQLModel, table=True):
+    """
+    Lifecycle record for an uploaded RFP document.
+
+    Part 1 statuses:
+    - analyzing
+    - discarded
+    - intake_complete
+
+    The same ticket will later continue through Parts 2 and 3.
+    """
+
+    __tablename__ = "rfp_tickets"
+
+    ticket_id: str = SQLField(
+        default_factory=lambda: str(uuid4()),
+        primary_key=True,
+    )
+
+    rfp_id: str | None = SQLField(
+        default=None,
+        foreign_key="rfps.rfp_id",
+    )
+
+    status: str = SQLField(
+        default="analyzing",
+        index=True,
+    )
+
+    raw_pdf_path: str
+    error_message: str | None = None
+
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+class DepartmentSection(SQLModel, table=True):
+    """
+    Per-department RFP analysis.
+
+    Part 1 persists key_aspects.
+    Fields for Parts 2 and 3 are included so the same entity can continue
+    through proposal generation, evaluation, and approval.
+    """
+
+    __tablename__ = "rfp_department_sections"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "rfp_id",
+            "department_id",
+            name="uq_rfp_department",
+        ),
+    )
+
+    id: str = SQLField(
+        default_factory=lambda: str(uuid4()),
+        primary_key=True,
+    )
+
+    rfp_id: str = SQLField(
+        foreign_key="rfps.rfp_id",
+        index=True,
+    )
+
+    department_id: str = SQLField(index=True)
+    owner: str
+
+    key_aspects: dict = SQLField(
+        default_factory=dict,
+        sa_column=Column(JSON),
+    )
+
+    # Part 2
+    draft_content: str | None = None
+
+    evaluation_results: dict | None = SQLField(
+        default=None,
+        sa_column=Column(JSON),
+    )
+
+    # Part 3
+    approval_status: str | None = None
+    approver: str | None = None
+    approved_at: datetime | None = None
+
+    created_at: datetime = SQLField(default_factory=datetime.utcnow)
+    updated_at: datetime = SQLField(default_factory=datetime.utcnow)
