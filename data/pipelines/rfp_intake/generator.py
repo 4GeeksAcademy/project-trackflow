@@ -12,8 +12,8 @@ You are a TrackFlow pricing proposal generator.
 
 You generate exactly one proposal section for one department.
 
-Use only facts present in the RFP metadata and that department's Part 1 key_aspects.
-Never invent missing operational figures.
+Use only facts present in the RFP metadata and that department's Part 1
+key_aspects. Never invent missing operational figures.
 
 Rules:
 - Pricing currency must match the client's country.
@@ -28,8 +28,9 @@ Return only the proposal section as plain text.
 """.strip()
 
 
-DEPARTMENT_GENERATION_GUIDANCE = {
-    "warehouse": """
+WAREHOUSE_GUIDANCE = """
+You are the Warehouse Operations proposal generator.
+
 Include:
 - warehousing scope
 - storage/capacity requirements supported by the RFP
@@ -38,9 +39,12 @@ Include:
 - volume discount tiers
 - SLA statement
 - unresolved open questions when needed
-""".strip(),
+""".strip()
 
-    "lastmile": """
+
+LASTMILE_GUIDANCE = """
+You are the Last Mile and Carrier Management proposal generator.
+
 Include:
 - shipment and destination scope
 - carrier-management requirements
@@ -49,9 +53,12 @@ Include:
 - volume discount tiers
 - no negotiated carrier-rate disclosure
 - unresolved open questions when needed
-""".strip(),
+""".strip()
 
-    "reverse": """
+
+REVERSE_GUIDANCE = """
+You are the Reverse Logistics proposal generator.
+
 Include:
 - returns inspection, reconditioning, and restocking scope
 - returns turnaround of 48 hours or more
@@ -59,21 +66,16 @@ Include:
 - volume discount tiers
 - SLA statement
 - unresolved open questions when needed
-""".strip(),
-}
+""".strip()
 
 
-def generate_department_section(
+def _generate_section(
     department_id: str,
+    guidance: str,
     metadata: dict,
     key_aspects: dict,
     feedback: str | None = None,
 ) -> str:
-    if department_id not in DEPARTMENTS:
-        raise ValueError(
-            f"Unknown TrackFlow department: {department_id}"
-        )
-
     currency = expected_currency(
         metadata.get("client_country")
     )
@@ -88,8 +90,8 @@ DEPARTMENT OWNER:
 EXPECTED CURRENCY:
 {currency}
 
-DEPARTMENT GUIDANCE:
-{DEPARTMENT_GENERATION_GUIDANCE[department_id]}
+DEPARTMENT-SPECIFIC GENERATOR INSTRUCTIONS:
+{guidance}
 
 RFP METADATA:
 {json.dumps(metadata, ensure_ascii=False)}
@@ -100,7 +102,7 @@ PART 1 KEY ASPECTS:
 EVALUATOR FEEDBACK:
 {feedback or "None - this is the first generation attempt."}
 
-Draft the department's pricing proposal section.
+Draft this department's pricing proposal section.
 """.strip()
 
     response = openai_client().chat.completions.create(
@@ -126,3 +128,74 @@ Draft the department's pricing proposal section.
         )
 
     return content.strip()
+
+
+def generate_warehouse_section(
+    metadata: dict,
+    key_aspects: dict,
+    feedback: str | None = None,
+) -> str:
+    return _generate_section(
+        department_id="warehouse",
+        guidance=WAREHOUSE_GUIDANCE,
+        metadata=metadata,
+        key_aspects=key_aspects,
+        feedback=feedback,
+    )
+
+
+def generate_lastmile_section(
+    metadata: dict,
+    key_aspects: dict,
+    feedback: str | None = None,
+) -> str:
+    return _generate_section(
+        department_id="lastmile",
+        guidance=LASTMILE_GUIDANCE,
+        metadata=metadata,
+        key_aspects=key_aspects,
+        feedback=feedback,
+    )
+
+
+def generate_reverse_section(
+    metadata: dict,
+    key_aspects: dict,
+    feedback: str | None = None,
+) -> str:
+    return _generate_section(
+        department_id="reverse",
+        guidance=REVERSE_GUIDANCE,
+        metadata=metadata,
+        key_aspects=key_aspects,
+        feedback=feedback,
+    )
+
+
+DEPARTMENT_GENERATORS = {
+    "warehouse": generate_warehouse_section,
+    "lastmile": generate_lastmile_section,
+    "reverse": generate_reverse_section,
+}
+
+
+def generate_department_section(
+    department_id: str,
+    metadata: dict,
+    key_aspects: dict,
+    feedback: str | None = None,
+) -> str:
+    if department_id not in DEPARTMENT_GENERATORS:
+        raise ValueError(
+            f"Unknown TrackFlow department: {department_id}"
+        )
+
+    generator = DEPARTMENT_GENERATORS[
+        department_id
+    ]
+
+    return generator(
+        metadata=metadata,
+        key_aspects=key_aspects,
+        feedback=feedback,
+    )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from sqlmodel import Session, select
 
 from data.pipelines.rfp_intake.persistence import (
@@ -88,9 +90,9 @@ def generate_ticket_response(
         "under_evaluation",
     )
 
-    results: list[dict] = []
-
-    for section_input in section_inputs:
+    def process_section(
+        section_input: dict,
+    ) -> dict:
         result = generate_and_evaluate_section(
             section_id=section_input["section_id"],
             department_id=section_input["department_id"],
@@ -106,10 +108,41 @@ def generate_ticket_response(
             needs_human_review=result["needs_human_review"],
         )
 
-        results.append(result)
+        return result
+
+    max_workers = max(
+        1,
+        len(section_inputs),
+    )
+
+    with ThreadPoolExecutor(
+        max_workers=max_workers
+    ) as executor:
+        results = list(
+            executor.map(
+                process_section,
+                section_inputs,
+            )
+        )
+
+    needs_human_review = any(
+        result["needs_human_review"]
+        for result in results
+    )
+
+    final_status = (
+        "needs_human_review"
+        if needs_human_review
+        else "under_evaluation"
+    )
+
+    update_ticket_status(
+        ticket_id,
+        final_status,
+    )
 
     return {
         "ticket_id": ticket_id,
-        "status": "under_evaluation",
+        "status": final_status,
         "sections": results,
     }

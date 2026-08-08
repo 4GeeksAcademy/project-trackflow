@@ -92,6 +92,7 @@ RFPStatus = Literal[
     "intake_complete",
     "drafting",
     "under_evaluation",
+    "needs_human_review",
     "waiting_for_approval",
     "done",
 ]
