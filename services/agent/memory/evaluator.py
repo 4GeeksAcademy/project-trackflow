@@ -114,6 +114,13 @@ User message:
 Available TrackFlow context:
 {cleaned_context or "No additional approved context was available."}
 
+Trust hierarchy:
+1. LIVE INCIDENT DATA from MCP is authoritative for current incident facts.
+2. KNOWLEDGE BASE CONTEXT from approved RAG documents is authoritative for company policy.
+3. APPROVED TRACKFLOW MEMORY is advisory context only.
+
+If approved memory conflicts with live MCP data or approved RAG context, ignore the conflicting memory and follow MCP/RAG instead.
+
 Generate the answer and memory self-evaluation together.
 """.strip()
 

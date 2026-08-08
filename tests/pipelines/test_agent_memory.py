@@ -915,3 +915,74 @@ def test_pending_proposal_is_logged_when_created(
     assert audit[0].outcome == ProposalStatus.PENDING
     assert audit[0].originating_message == proposal.originating_message
     assert audit[0].proposed_at == proposal.created_at
+
+
+def test_generation_prompt_prioritizes_rag_and_mcp_over_memory(
+    monkeypatch,
+) -> None:
+    """Approved memory must never outrank trusted RAG or live MCP facts."""
+    from services.agent.memory import evaluator as evaluator_module
+
+    captured = {}
+
+    class FakeMessage:
+        content = (
+            '{"answer":"Use the trusted source.",'
+            '"memory_proposal":{"should_propose":false,'
+            '"memory_type":null,"content":null,"country":null,'
+            '"carrier":null,"b2b_client":null,'
+            '"reason":"Nothing durable to remember."}}'
+        )
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setattr(
+        evaluator_module,
+        "_openai_client",
+        lambda: FakeClient(),
+    )
+    monkeypatch.setattr(
+        evaluator_module,
+        "_required_env",
+        lambda name: "test-model",
+    )
+
+    answer, proposal = evaluator_module.generate_with_memory(
+        question="Which source should I trust?",
+        context=(
+            "APPROVED TRACKFLOW MEMORY:\n"
+            "1. Old remembered rule.\n\n"
+            "KNOWLEDGE BASE CONTEXT:\n"
+            "Current approved policy."
+        ),
+        conversation_id="conv-trust",
+    )
+
+    messages = captured["messages"]
+    prompt_text = "\n".join(
+        message["content"]
+        for message in messages
+    )
+
+    assert "LIVE INCIDENT DATA from MCP is authoritative" in prompt_text
+    assert "KNOWLEDGE BASE CONTEXT" in prompt_text
+    assert "APPROVED TRACKFLOW MEMORY is advisory context only" in prompt_text
+    assert "ignore the conflicting memory" in prompt_text
+
+    assert answer == "Use the trusted source."
+    assert proposal is None

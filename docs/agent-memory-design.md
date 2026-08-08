@@ -68,9 +68,9 @@ User approval does not override these restrictions.
 
 ## Self-Evaluation
 
-After producing its normal answer, the existing agent executes a memory-evaluation node.
+The existing agent generates the user-visible answer and memory self-evaluation together in one structured model call.
 
-The evaluator returns structured JSON describing:
+That structured output contains:
 
 - whether memory should be proposed
 - memory type
@@ -85,6 +85,8 @@ Malformed output fails closed and creates no proposal.
 A proposed memory is then checked by deterministic TrackFlow memory policy.
 
 If allowed, one proposal becomes pending for the conversation and the agent asks the user whether it should be remembered.
+
+The proposal is also written immediately to the audit log with a PENDING outcome, including its originating message and timestamp.
 
 A pending proposal is not persistent memory.
 
@@ -145,6 +147,8 @@ The proposal is discarded by default and nothing is stored.
 ### UNRELATED
 
 The proposal is discarded and audited, then the user's new request continues through the normal agent workflow.
+
+If the user approves, rejects, or edits the proposal and also asks a separate question in the same message, the decision is resolved first and the follow-up question continues through the normal agent workflow in the same turn.
 
 ## Audit Log
 
@@ -214,7 +218,13 @@ The implementation reduces memory poisoning risk through multiple controls:
 6. malformed or low-confidence decisions fail closed
 7. only approved persistent records participate in recall
 
-Operational claims should continue to be checked against trusted RAG or MCP sources when verification is available.
+Operational claims use an explicit trust hierarchy:
+
+1. live MCP incident data is authoritative for current incident facts;
+2. approved RAG knowledge-base context is authoritative for company policy;
+3. approved TrackFlow memory is advisory context only.
+
+If recalled memory conflicts with trusted MCP or RAG information, the conflicting memory is ignored. This prevents a malicious or mistaken approved memory from overriding authoritative operational data.
 
 ## Why Multi-Agent Architecture Is Not Required
 
@@ -276,4 +286,4 @@ test_full_rejected_memory_cycle_not_recalled
 
 Full repository test result:
 
-52 passed
+56 passed
