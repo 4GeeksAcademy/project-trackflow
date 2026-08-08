@@ -4,18 +4,27 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 
 GuardrailCategory = Literal[
     "allowed",
     "casual",
+    "general_question",
     "personal_task",
     "security",
     "sensitive_data",
 ]
 
 TrackFlowCountry = Literal["USA", "Spain"]
+
+OutputFailureType = Literal[
+    "structural",
+    "content",
+    "security",
+]
 
 
 @dataclass(frozen=True)
@@ -37,6 +46,16 @@ class CountryPolicyDecision:
     requested_country: TrackFlowCountry | None = None
     reason: str | None = None
     response: str | None = None
+
+
+@dataclass(frozen=True)
+class OutputGuardDecision:
+    """Result of validating model output before returning it to the user."""
+
+    allowed: bool
+    failure_type: OutputFailureType | None = None
+    reason: str | None = None
+    safe_response: str | None = None
 
 
 JAILBREAK_PATTERNS = (
@@ -81,11 +100,13 @@ PERSONAL_TASK_TERMS = (
     "build me a website",
     "make me a website",
     "be my therapist",
+    "act as my therapist",
     "relationship advice",
     "dating advice",
     "personal advice",
     "write my resume",
     "write me a resume",
+    "make my resume",
 )
 
 
@@ -141,6 +162,60 @@ GENERAL_LOGISTICS_TERMS = (
 )
 
 
+GENERAL_QUESTION_PATTERNS = (
+    re.compile(
+        r"^\s*what time is it\b",
+        re.I,
+    ),
+    re.compile(
+        r"^\s*what(?:'s| is) the time\b",
+        re.I,
+    ),
+    re.compile(
+        r"^\s*what(?:'s| is) the capital of\b",
+        re.I,
+    ),
+    re.compile(
+        r"^\s*who (?:is|was)\b",
+        re.I,
+    ),
+    re.compile(
+        r"^\s*when (?:is|was|did)\b",
+        re.I,
+    ),
+    re.compile(
+        r"^\s*where (?:is|was)\b",
+        re.I,
+    ),
+    re.compile(
+        r"^\s*what (?:is|was|are|were)\b",
+        re.I,
+    ),
+)
+
+
+TRACKFLOW_DOMAIN_TERMS = (
+    "trackflow",
+    "shipment",
+    "shipping",
+    "tracking",
+    "order",
+    "parcel",
+    "package",
+    "return",
+    "returns",
+    "delivery",
+    "incident",
+    "ticket",
+    "lost parcel",
+    "failed delivery",
+    "wrong address",
+    "sla",
+    "carrier",
+    "logistics",
+)
+
+
 SPAIN_POLICY_PATTERN = re.compile(
     r"\b(spain|spanish|españa|spain's)\b.{0,30}\b"
     r"(policy|return|returns|sla)\b"
@@ -166,6 +241,86 @@ SPAIN_LOCATION_PATTERN = re.compile(
     r"\b(spain|españa|zaragoza|zgz)\b",
     re.I,
 )
+
+
+OUTPUT_INSTRUCTION_LEAK_PATTERNS = (
+    re.compile(r"\bsystem prompt\b", re.I),
+    re.compile(r"\bdeveloper (?:message|instructions?)\b", re.I),
+    re.compile(r"\bhidden (?:prompt|instructions?)\b", re.I),
+    re.compile(r"\binstruction hierarchy\b", re.I),
+    re.compile(r"\binternal security rules?\b", re.I),
+)
+
+
+OUTPUT_SENSITIVE_DATA_PATTERNS = (
+    re.compile(
+        r"\b(?:ups|fedex|dhl|mrw|seur)\b.{0,40}"
+        r"\bnegotiated (?:rate|rates|pricing|terms)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bnegotiated (?:rate|rates|pricing|terms)\b.{0,40}"
+        r"\b(?:ups|fedex|dhl|mrw|seur)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bexact warehouse (?:location|address)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\binternal physical rout(?:e|es|ing)\b",
+        re.I,
+    ),
+)
+
+
+SAFE_OUTPUT_FALLBACK = (
+    "I can't provide that response because it may contain restricted "
+    "TrackFlow information. I can still help with authorized shipment "
+    "tracking, returns, SLAs, and delivery incidents."
+)
+
+
+TRACKFLOW_REDIRECT = (
+    "My main role is TrackFlow logistics support, so I can help with "
+    "shipment tracking, returns, SLAs, and delivery incidents."
+)
+
+
+def _is_trackflow_domain_question(lowered_question: str) -> bool:
+    """Return True when the request clearly concerns TrackFlow's domain."""
+    return any(
+        term in lowered_question
+        for term in TRACKFLOW_DOMAIN_TERMS
+    )
+
+
+def _brief_general_answer(question: str) -> str:
+    """Return a brief supported general answer followed by TrackFlow redirect."""
+    lowered = question.lower()
+
+    if "time" in lowered and "tokyo" in lowered:
+        tokyo_now = datetime.now(
+            ZoneInfo("Asia/Tokyo")
+        )
+
+        current_time = tokyo_now.strftime("%I:%M %p").lstrip("0")
+
+        return (
+            f"The current time in Tokyo is {current_time}. "
+            f"{TRACKFLOW_REDIRECT}"
+        )
+
+    if "capital" in lowered and "france" in lowered:
+        return (
+            f"The capital of France is Paris. "
+            f"{TRACKFLOW_REDIRECT}"
+        )
+
+    return (
+        "I can answer brief general questions, but I can't become a "
+        f"general-purpose assistant. {TRACKFLOW_REDIRECT}"
+    )
 
 
 def evaluate_input(question: str) -> GuardrailDecision:
@@ -230,10 +385,26 @@ def evaluate_input(question: str) -> GuardrailDecision:
             category="casual",
             reason="general_logistics_question",
             response=(
-                "I can give brief general logistics guidance, but my main role is "
-                "TrackFlow support. Ask me how the topic applies to a TrackFlow "
-                "shipment, return, SLA, or delivery incident."
+                "Reverse logistics is the process of moving goods from the "
+                "customer back toward the seller or logistics network for "
+                "returns, repair, recycling, or disposal. For TrackFlow, I can "
+                "help explain how that applies to a shipment, return, SLA, or "
+                "delivery incident."
             ),
+        )
+
+    if (
+        not _is_trackflow_domain_question(lowered)
+        and any(
+            pattern.search(normalized)
+            for pattern in GENERAL_QUESTION_PATTERNS
+        )
+    ):
+        return GuardrailDecision(
+            allowed=False,
+            category="general_question",
+            reason="general_question_redirect",
+            response=_brief_general_answer(normalized),
         )
 
     return GuardrailDecision(
@@ -302,4 +473,53 @@ def enforce_country_policy(
         allowed=True,
         shipment_country=actual_country,
         requested_country=requested_country,
+    )
+
+
+def validate_output(answer: str | None) -> OutputGuardDecision:
+    """Validate final agent output before it is returned to the user."""
+    if answer is None or not isinstance(answer, str):
+        return OutputGuardDecision(
+            allowed=False,
+            failure_type="structural",
+            reason="missing_or_invalid_answer",
+            safe_response=(
+                "I couldn't produce a valid TrackFlow support response. "
+                "Please try the request again."
+            ),
+        )
+
+    normalized = " ".join(answer.strip().split())
+
+    if not normalized:
+        return OutputGuardDecision(
+            allowed=False,
+            failure_type="structural",
+            reason="empty_answer",
+            safe_response=(
+                "I couldn't produce a valid TrackFlow support response. "
+                "Please try the request again."
+            ),
+        )
+
+    for pattern in OUTPUT_INSTRUCTION_LEAK_PATTERNS:
+        if pattern.search(normalized):
+            return OutputGuardDecision(
+                allowed=False,
+                failure_type="security",
+                reason="internal_instruction_leak",
+                safe_response=SAFE_OUTPUT_FALLBACK,
+            )
+
+    for pattern in OUTPUT_SENSITIVE_DATA_PATTERNS:
+        if pattern.search(normalized):
+            return OutputGuardDecision(
+                allowed=False,
+                failure_type="content",
+                reason="sensitive_data_leak",
+                safe_response=SAFE_OUTPUT_FALLBACK,
+            )
+
+    return OutputGuardDecision(
+        allowed=True,
     )

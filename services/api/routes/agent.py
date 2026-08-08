@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from services.agent.graph import run_agent
+from services.agent.trace import get_guardrail_summary
 from services.api.auth import get_current_user
 
 
@@ -50,13 +51,25 @@ async def ask_agent(
         )
 
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
 
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
 
     except Exception as exc:
         raise HTTPException(
             status_code=500,
             detail="The TrackFlow agent could not answer the question.",
         ) from exc
+
+
+@router.get("/guardrails/summary")
+def guardrail_summary() -> dict:
+    """Return aggregate TrackFlow guardrail observability metrics."""
+    return get_guardrail_summary()

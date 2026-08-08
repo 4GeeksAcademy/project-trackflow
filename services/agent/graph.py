@@ -14,9 +14,11 @@ from services.agent.nodes import (
     generate_ticket_answer_node,
     guard_input_node,
     no_context_node,
+    output_guard_node,
     retrieve_context_node,
     route_after_country_policy,
     route_after_guard,
+    route_after_output_guard,
     route_after_request,
     route_after_retrieval,
     route_after_ticket_lookup,
@@ -51,6 +53,7 @@ def build_graph():
     builder.add_node("generate_answer", generate_answer_node)
     builder.add_node("generate_ticket_answer", generate_ticket_answer_node)
     builder.add_node("generate_combined_answer", generate_combined_answer_node)
+    builder.add_node("output_guard", output_guard_node)
 
     builder.add_edge(START, "validate_question")
 
@@ -120,11 +123,21 @@ def build_graph():
         },
     )
 
-    builder.add_edge("generate_answer", END)
-    builder.add_edge("generate_ticket_answer", END)
-    builder.add_edge("generate_combined_answer", END)
-    builder.add_edge("ticket_fallback", END)
-    builder.add_edge("no_context", END)
+    # Every normal answer path must pass through output validation.
+    builder.add_edge("generate_answer", "output_guard")
+    builder.add_edge("generate_ticket_answer", "output_guard")
+    builder.add_edge("generate_combined_answer", "output_guard")
+    builder.add_edge("ticket_fallback", "output_guard")
+    builder.add_edge("no_context", "output_guard")
+
+    builder.add_conditional_edges(
+        "output_guard",
+        route_after_output_guard,
+        {
+            "allowed": END,
+            "blocked": END,
+        },
+    )
 
     checkpointer = MemorySaver()
 
@@ -140,7 +153,7 @@ def record_triggered_guardrail(
     question: str,
     result: AgentState,
 ) -> None:
-    """Record the guardrail that stopped or redirected the request."""
+    """Record the guardrail that stopped, redirected, or replaced a response."""
     if result.get("guardrail_allowed") is False:
         record_guardrail_event(
             run_id=run_id,
@@ -181,6 +194,21 @@ def record_triggered_guardrail(
                 or "country_policy_mismatch"
             ),
             action="blocked",
+        )
+        return
+
+    if result.get("output_guard_allowed") is False:
+        record_guardrail_event(
+            run_id=run_id,
+            question=question,
+            guardrail_type=str(
+                result.get("output_guard_failure_type") or "content"
+            ),
+            reason=str(
+                result.get("output_guard_reason")
+                or "output_validation_failed"
+            ),
+            action="response_replaced",
         )
 
 

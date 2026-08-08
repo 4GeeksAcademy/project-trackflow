@@ -16,6 +16,7 @@ from services.agent.authorization import authorize_tracking_number
 from services.agent.guardrails import (
     enforce_country_policy,
     evaluate_input,
+    validate_output,
 )
 from services.agent.state import AgentState
 from services.agent.tools import TicketLookupInput, lookup_ticket
@@ -297,6 +298,25 @@ def generate_combined_answer_node(state: AgentState) -> AgentState:
     }
 
 
+def output_guard_node(state: AgentState) -> AgentState:
+    """Validate the final answer before exposing it to the user."""
+    decision = validate_output(state.get("answer"))
+
+    if decision.allowed:
+        return {
+            "output_guard_allowed": True,
+            "output_guard_failure_type": None,
+            "output_guard_reason": None,
+        }
+
+    return {
+        "output_guard_allowed": False,
+        "output_guard_failure_type": decision.failure_type,
+        "output_guard_reason": decision.reason,
+        "answer": decision.safe_response,
+    }
+
+
 def route_after_validation(state: AgentState) -> str:
     """Route invalid questions directly to the end."""
     if state.get("error"):
@@ -359,3 +379,11 @@ def route_after_ticket_lookup(state: AgentState) -> str:
         return "both"
 
     return "ticket"
+
+
+def route_after_output_guard(state: AgentState) -> str:
+    """Finish after output validation, whether allowed or safely replaced."""
+    if state.get("output_guard_allowed", True):
+        return "allowed"
+
+    return "blocked"

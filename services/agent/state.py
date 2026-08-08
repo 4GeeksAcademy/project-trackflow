@@ -39,6 +39,14 @@ class AgentState(TypedDict, total=False):
     country_policy_reason: str | None
     country_policy_response: str | None
 
+    output_guard_allowed: bool | None
+    output_guard_failure_type: Literal[
+        "structural",
+        "content",
+        "security",
+    ] | None
+    output_guard_reason: str | None
+
     route: Literal["rag", "ticket", "both"]
     incident_id: int | None
     ticket_result: dict[str, Any] | None

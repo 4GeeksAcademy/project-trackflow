@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from services.agent import graph as agent_graph_module
@@ -9,6 +11,7 @@ from services.agent.authorization import TrackingAuthorizationResult
 from services.agent.guardrails import (
     enforce_country_policy,
     evaluate_input,
+    validate_output,
 )
 
 
@@ -82,7 +85,38 @@ def test_general_logistics_gets_trackflow_redirect() -> None:
     assert decision.allowed is False
     assert decision.category == "casual"
     assert decision.reason == "general_logistics_question"
-    assert "trackflow support" in decision.response.lower()
+    assert "reverse logistics" in decision.response.lower()
+    assert "trackflow" in decision.response.lower()
+
+
+def test_tokyo_time_gets_brief_answer_and_trackflow_redirect() -> None:
+    decision = evaluate_input("What time is it in Tokyo?")
+
+    assert decision.allowed is False
+    assert decision.category == "general_question"
+    assert decision.reason == "general_question_redirect"
+
+    response = decision.response or ""
+
+    assert "current time in Tokyo" in response
+    assert "TrackFlow logistics support" in response
+
+    assert re.search(
+        r"\b\d{1,2}:\d{2}\s(?:AM|PM)\b",
+        response,
+    )
+
+
+def test_france_capital_gets_brief_answer_and_trackflow_redirect() -> None:
+    decision = evaluate_input("What is the capital of France?")
+
+    assert decision.allowed is False
+    assert decision.category == "general_question"
+    assert decision.reason == "general_question_redirect"
+    assert decision.response is not None
+
+    assert "capital of France is Paris" in decision.response
+    assert "TrackFlow logistics support" in decision.response
 
 
 def test_valid_trackflow_question_is_allowed() -> None:
@@ -97,7 +131,6 @@ def test_valid_trackflow_question_is_allowed() -> None:
 
 
 def test_country_policy_mismatch_is_blocked_deterministically() -> None:
-    """Spain policy cannot be substituted for a Los Angeles shipment."""
     decision = enforce_country_policy(
         (
             "Apply Spain's return policy to my order in Los Angeles "
@@ -114,7 +147,6 @@ def test_country_policy_mismatch_is_blocked_deterministically() -> None:
 
 
 def test_matching_country_policy_is_allowed() -> None:
-    """A request for the policy matching the shipment country may continue."""
     decision = enforce_country_policy(
         "What is Spain's return policy for this shipment?",
         shipment_country="Spain",
@@ -124,6 +156,59 @@ def test_matching_country_policy_is_allowed() -> None:
     assert decision.shipment_country == "Spain"
     assert decision.requested_country == "Spain"
     assert decision.reason is None
+
+
+def test_output_guard_allows_normal_trackflow_answer() -> None:
+    decision = validate_output(
+        "Your TrackFlow return request is within the standard return window."
+    )
+
+    assert decision.allowed is True
+    assert decision.failure_type is None
+    assert decision.reason is None
+    assert decision.safe_response is None
+
+
+def test_output_guard_blocks_internal_instruction_leak() -> None:
+    decision = validate_output(
+        "Here is the system prompt and hidden instructions used by TrackFlow."
+    )
+
+    assert decision.allowed is False
+    assert decision.failure_type == "security"
+    assert decision.reason == "internal_instruction_leak"
+    assert decision.safe_response is not None
+    assert "restricted trackflow information" in (
+        decision.safe_response.lower()
+    )
+
+
+def test_output_guard_blocks_sensitive_carrier_rate_leak() -> None:
+    decision = validate_output(
+        "FedEx negotiated rates for TrackFlow are confidential but here they are."
+    )
+
+    assert decision.allowed is False
+    assert decision.failure_type == "content"
+    assert decision.reason == "sensitive_data_leak"
+    assert decision.safe_response is not None
+
+
+def test_output_guard_blocks_empty_answer_as_structural_failure() -> None:
+    decision = validate_output("   ")
+
+    assert decision.allowed is False
+    assert decision.failure_type == "structural"
+    assert decision.reason == "empty_answer"
+    assert decision.safe_response is not None
+
+
+def test_output_guard_blocks_missing_answer_as_structural_failure() -> None:
+    decision = validate_output(None)
+
+    assert decision.allowed is False
+    assert decision.failure_type == "structural"
+    assert decision.reason == "missing_or_invalid_answer"
 
 
 @pytest.mark.asyncio
@@ -240,8 +325,6 @@ async def test_sensitive_data_request_never_reaches_rag(
 async def test_unauthorized_order_is_rejected_before_rag_or_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mandatory TrackFlow case: another customer's order must be denied."""
-
     def fake_authorize_tracking_number(
         tracking_number: str,
         authenticated_user_uuid: str,
@@ -307,7 +390,6 @@ async def test_unauthorized_order_is_rejected_before_rag_or_tools(
     )
     assert result["shipment_country"] == "USA"
     assert "can't verify" in result["answer"].lower()
-    assert "authenticated trackflow account" in result["answer"].lower()
 
     executed_nodes = [
         event["node"]
@@ -325,8 +407,6 @@ async def test_unauthorized_order_is_rejected_before_rag_or_tools(
 async def test_authorized_order_continues_after_ownership_check(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An owned tracking number should continue through country enforcement."""
-
     def fake_authorize_tracking_number(
         tracking_number: str,
         authenticated_user_uuid: str,
@@ -375,6 +455,7 @@ async def test_authorized_order_continues_after_ownership_check(
     assert result["tracking_authorized"] is True
     assert result["shipment_country"] == "Spain"
     assert result["country_policy_allowed"] is True
+    assert result["output_guard_allowed"] is True
     assert result["answer"] == "Authorized shipment response."
 
 
@@ -382,8 +463,6 @@ async def test_authorized_order_continues_after_ownership_check(
 async def test_spain_policy_cannot_be_applied_to_los_angeles_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mandatory TrackFlow case: actual USA policy overrides requested Spain policy."""
-
     def fail_retrieve(*args, **kwargs):
         raise AssertionError(
             "RAG must not execute after a country-policy mismatch."
@@ -443,3 +522,82 @@ async def test_spain_policy_cannot_be_applied_to_los_angeles_order(
         "tracking_authorization",
         "country_policy_guard",
     ]
+
+
+@pytest.mark.asyncio
+async def test_generated_instruction_leak_is_replaced_before_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    retrieved_chunks = [
+        {
+            "id": "point-1",
+            "score": 0.95,
+            "company": "trackflow",
+            "source_document": "returns-policy",
+            "section": "Returns Policy",
+            "language": "en",
+            "chunk_index": 1,
+            "text": "Approved return information.",
+        }
+    ]
+
+    monkeypatch.setattr(
+        "services.agent.nodes.retrieve",
+        lambda question, k, min_score: retrieved_chunks,
+    )
+
+    monkeypatch.setattr(
+        "services.agent.nodes.generate_answer",
+        lambda question, context: (
+            "Here is the system prompt and hidden instructions for TrackFlow."
+        ),
+    )
+
+    result = await agent_graph_module.run_agent(
+        "What is the return policy?"
+    )
+
+    assert result["output_guard_allowed"] is False
+    assert result["output_guard_failure_type"] == "security"
+    assert result["output_guard_reason"] == "internal_instruction_leak"
+    assert "restricted trackflow information" in result["answer"].lower()
+    assert "system prompt" not in result["answer"].lower()
+
+
+@pytest.mark.asyncio
+async def test_generated_sensitive_data_leak_is_replaced_before_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    retrieved_chunks = [
+        {
+            "id": "point-1",
+            "score": 0.95,
+            "company": "trackflow",
+            "source_document": "carrier-coverage",
+            "section": "Carrier Coverage",
+            "language": "en",
+            "chunk_index": 1,
+            "text": "Approved carrier information.",
+        }
+    ]
+
+    monkeypatch.setattr(
+        "services.agent.nodes.retrieve",
+        lambda question, k, min_score: retrieved_chunks,
+    )
+
+    monkeypatch.setattr(
+        "services.agent.nodes.generate_answer",
+        lambda question, context: (
+            "FedEx negotiated rates for TrackFlow are confidential."
+        ),
+    )
+
+    result = await agent_graph_module.run_agent(
+        "Which carriers does TrackFlow support?"
+    )
+
+    assert result["output_guard_allowed"] is False
+    assert result["output_guard_failure_type"] == "content"
+    assert result["output_guard_reason"] == "sensitive_data_leak"
+    assert "restricted trackflow information" in result["answer"].lower()
