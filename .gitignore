@@ -7,3 +7,6 @@ __pycache__/
 
 # Local TrackFlow runtime data
 services/api/suppliers_db.json
+
+# Agent memory runtime data
+data/agent_memory/

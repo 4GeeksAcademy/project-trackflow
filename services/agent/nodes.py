@@ -12,6 +12,15 @@ from data.pipelines.rag import (
     generate_answer,
     retrieve,
 )
+from services.agent.memory.decision import classify_memory_decision
+from services.agent.memory.evaluator import evaluate_for_memory
+from services.agent.memory.models import (
+    MemoryAuditRecord,
+    MemoryDecision,
+    ProposalStatus,
+)
+from services.agent.memory.policy import validate_memory_proposal
+from services.agent.memory.store import MemoryStore
 from services.agent.state import AgentState
 from services.agent.tools import TicketLookupInput, lookup_ticket
 
@@ -37,6 +46,45 @@ def validate_question_node(state: AgentState) -> AgentState:
         "question": question,
         "error": None,
     }
+
+
+def recall_memory_node(state: AgentState) -> AgentState:
+    """Recall only approved persistent memory relevant to this request."""
+
+    question = state.get("question", "").strip()
+
+    if not question:
+        return {
+            "recalled_memories": [],
+            "memory_context": "",
+        }
+
+    store = MemoryStore()
+    recalled = store.recall_relevant(question)
+
+    if not recalled:
+        return {
+            "recalled_memories": [],
+            "memory_context": "",
+        }
+
+    context_lines = [
+        "APPROVED TRACKFLOW MEMORY:",
+    ]
+
+    for index, memory in enumerate(recalled, start=1):
+        context_lines.append(
+            f"{index}. [{memory.memory_type.value}] {memory.content}"
+        )
+
+    return {
+        "recalled_memories": [
+            memory.model_dump(mode="json")
+            for memory in recalled
+        ],
+        "memory_context": "\n".join(context_lines),
+    }
+
 
 
 def route_request_node(state: AgentState) -> AgentState:
@@ -125,8 +173,15 @@ def generate_answer_node(state: AgentState) -> AgentState:
     """Generate from context already produced by the retrieval node."""
     question = state["question"]
     context = state.get("context", "")
+    memory_context = state.get("memory_context", "")
 
-    answer = generate_answer(question, context)
+    combined_context = "\n\n".join(
+        part
+        for part in (memory_context, context)
+        if part
+    )
+
+    answer = generate_answer(question, combined_context)
 
     return {
         "answer": answer,
@@ -166,7 +221,11 @@ def generate_combined_answer_node(state: AgentState) -> AgentState:
     incident = ticket_result["incident"]
     context = state.get("context", "")
 
+    memory_context = state.get("memory_context", "")
+
     combined_context = (
+        f"{memory_context}\n\n" if memory_context else ""
+    ) + (
         "LIVE INCIDENT DATA:\n"
         f"ID: {incident['id']}\n"
         f"Title: {incident['title']}\n"
@@ -187,6 +246,246 @@ def generate_combined_answer_node(state: AgentState) -> AgentState:
     return {
         "answer": answer,
     }
+
+
+
+
+def resolve_pending_memory_node(state: AgentState) -> AgentState:
+    """Resolve the user's decision for one pending memory proposal."""
+
+    conversation_id = state.get("conversation_id", "").strip()
+    user_message = state.get("question", "").strip()
+
+    if not conversation_id:
+        return {
+            "memory_status": "no_conversation",
+            "memory_decision": None,
+        }
+
+    store = MemoryStore()
+    proposal = store.get_pending(conversation_id)
+
+    if proposal is None:
+        return {
+            "memory_status": "no_pending",
+            "memory_decision": None,
+        }
+
+    decision = classify_memory_decision(
+        user_message=user_message,
+        proposal=proposal,
+    )
+
+    if decision.decision == MemoryDecision.APPROVE:
+        stored = store.write_memory(proposal)
+
+        store.append_audit(
+            MemoryAuditRecord(
+                proposal_id=proposal.proposal_id,
+                conversation_id=proposal.conversation_id,
+                proposed_memory=proposal.content,
+                originating_message=proposal.originating_message,
+                outcome=ProposalStatus.APPROVED,
+                user_decision=MemoryDecision.APPROVE,
+                final_memory=stored.content,
+                proposed_at=proposal.created_at,
+            )
+        )
+
+        store.discard_pending(conversation_id)
+
+        return {
+            "answer": "Got it. I saved that for future TrackFlow conversations.",
+            "memory_status": "approved",
+            "memory_decision": decision.model_dump(mode="json"),
+        }
+
+    if decision.decision == MemoryDecision.REJECT:
+        store.append_audit(
+            MemoryAuditRecord(
+                proposal_id=proposal.proposal_id,
+                conversation_id=proposal.conversation_id,
+                proposed_memory=proposal.content,
+                originating_message=proposal.originating_message,
+                outcome=ProposalStatus.REJECTED,
+                user_decision=MemoryDecision.REJECT,
+                proposed_at=proposal.created_at,
+            )
+        )
+
+        store.discard_pending(conversation_id)
+
+        return {
+            "answer": "Understood. I did not save that.",
+            "memory_status": "rejected",
+            "memory_decision": decision.model_dump(mode="json"),
+        }
+
+    if decision.decision == MemoryDecision.EDIT:
+        edited = proposal.model_copy(
+            update={
+                "content": decision.edited_content.strip(),
+                "status": ProposalStatus.EDITED,
+            }
+        )
+
+        policy_result = validate_memory_proposal(edited)
+
+        if not policy_result.allowed:
+            store.append_audit(
+                MemoryAuditRecord(
+                    proposal_id=proposal.proposal_id,
+                    conversation_id=proposal.conversation_id,
+                    proposed_memory=proposal.content,
+                    originating_message=proposal.originating_message,
+                    outcome=ProposalStatus.BLOCKED,
+                    user_decision=MemoryDecision.EDIT,
+                    proposed_at=proposal.created_at,
+                )
+            )
+
+            store.discard_pending(conversation_id)
+
+            return {
+                "answer": (
+                    "I could not save that edited memory because it conflicts "
+                    "with TrackFlow memory policy."
+                ),
+                "memory_status": "blocked",
+                "memory_decision": decision.model_dump(mode="json"),
+            }
+
+        stored = store.write_memory(edited)
+
+        store.append_audit(
+            MemoryAuditRecord(
+                proposal_id=proposal.proposal_id,
+                conversation_id=proposal.conversation_id,
+                proposed_memory=proposal.content,
+                originating_message=proposal.originating_message,
+                outcome=ProposalStatus.EDITED,
+                user_decision=MemoryDecision.EDIT,
+                final_memory=stored.content,
+                proposed_at=proposal.created_at,
+            )
+        )
+
+        store.discard_pending(conversation_id)
+
+        return {
+            "answer": (
+                "Got it. I saved the corrected version for future "
+                "TrackFlow conversations."
+            ),
+            "memory_status": "edited",
+            "memory_decision": decision.model_dump(mode="json"),
+        }
+
+    # Ambiguous and unrelated responses never authorize persistence.
+    store.append_audit(
+        MemoryAuditRecord(
+            proposal_id=proposal.proposal_id,
+            conversation_id=proposal.conversation_id,
+            proposed_memory=proposal.content,
+            originating_message=proposal.originating_message,
+            outcome=ProposalStatus.DISCARDED,
+            user_decision=decision.decision,
+            proposed_at=proposal.created_at,
+        )
+    )
+
+    store.discard_pending(conversation_id)
+
+    if decision.decision == MemoryDecision.UNRELATED:
+        return {
+            "memory_status": "discarded_unrelated",
+            "memory_decision": decision.model_dump(mode="json"),
+        }
+
+    return {
+        "answer": (
+            "I could not confidently determine whether you wanted that "
+            "memory saved, so I discarded the proposal and did not store it."
+        ),
+        "memory_status": "discarded_ambiguous",
+        "memory_decision": decision.model_dump(mode="json"),
+    }
+
+
+
+def memory_evaluation_node(state: AgentState) -> AgentState:
+    """Self-evaluate the completed interaction for durable TrackFlow memory."""
+
+    question = state.get("question", "").strip()
+    answer = state.get("answer", "").strip()
+    conversation_id = state.get("conversation_id", "").strip()
+
+    if not question or not answer or not conversation_id:
+        return {
+            "memory_proposal": None,
+            "memory_status": "not_proposed",
+        }
+
+    proposal = evaluate_for_memory(
+        question=question,
+        answer=answer,
+        conversation_id=conversation_id,
+    )
+
+    if proposal is None:
+        return {
+            "memory_proposal": None,
+            "memory_status": "not_proposed",
+        }
+
+    policy_result = validate_memory_proposal(proposal)
+    store = MemoryStore()
+
+    if not policy_result.allowed:
+        store.append_audit(
+            MemoryAuditRecord(
+                proposal_id=proposal.proposal_id,
+                conversation_id=proposal.conversation_id,
+                proposed_memory=proposal.content,
+                originating_message=proposal.originating_message,
+                outcome=ProposalStatus.BLOCKED,
+                proposed_at=proposal.created_at,
+            )
+        )
+
+        return {
+            "memory_proposal": None,
+            "memory_status": "blocked",
+        }
+
+    store.save_pending(proposal)
+
+    confirmation_prompt = (
+        f'{answer}\n\n'
+        f'I noticed something that may be useful in future conversations: '
+        f'"{proposal.content}" '
+        f'Would you like me to remember this for next time?'
+    )
+
+    return {
+        "answer": confirmation_prompt,
+        "memory_proposal": proposal.model_dump(mode="json"),
+        "memory_status": "pending",
+    }
+
+
+
+
+def route_after_pending_memory(state: AgentState) -> str:
+    """Decide whether to continue normally after checking pending memory."""
+
+    status = state.get("memory_status")
+
+    if status in {"no_pending", "discarded_unrelated"}:
+        return "continue"
+
+    return "resolved"
+
 
 
 def route_after_validation(state: AgentState) -> str:
