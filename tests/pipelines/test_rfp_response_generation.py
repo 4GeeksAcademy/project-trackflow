@@ -1,9 +1,60 @@
+from types import SimpleNamespace
+
 from data.pipelines.rfp_intake.evaluation import (
     ComplianceEvaluation,
     ReadabilityEvaluation,
     RelevanceEvaluation,
 )
+from data.pipelines.rfp_intake import generator
 from data.pipelines.rfp_intake import response_generation
+
+
+def test_warehouse_generator_agent(monkeypatch):
+    fake_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="Warehouse proposal in USD with 98% on-time delivery SLA."
+                )
+            )
+        ]
+    )
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return fake_response
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setattr(
+        generator,
+        "openai_client",
+        lambda: FakeClient(),
+    )
+
+    monkeypatch.setattr(
+        generator,
+        "generation_model",
+        lambda: "test-model",
+    )
+
+    result = generator.generate_warehouse_section(
+        metadata={
+            "client_country": "US",
+            "client_name": "Luna Cosmetics",
+        },
+        key_aspects={
+            "requested_scope": ["warehousing"],
+            "known_requirements": ["5,000 orders/month"],
+        },
+    )
+
+    assert "Warehouse proposal" in result
+    assert "USD" in result
 
 
 def test_section_passes_first_iteration(
