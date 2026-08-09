@@ -317,3 +317,30 @@ class DepartmentSection(SQLModel, table=True):
 
     created_at: datetime = SQLField(default_factory=datetime.utcnow)
     updated_at: datetime = SQLField(default_factory=datetime.utcnow)
+
+
+class FinalDocument(SQLModel, table=True):
+    """
+    Final TrackFlow client-facing proposal generated after all active
+    department sections receive human approval.
+    """
+
+    __tablename__ = "rfp_final_documents"
+
+    ticket_id: str = SQLField(
+        foreign_key="rfp_tickets.ticket_id",
+        primary_key=True,
+    )
+
+    sections: dict = SQLField(
+        default_factory=dict,
+        sa_column=Column(JSON),
+    )
+
+    currency: str
+
+    document_content: str
+
+    generated_at: datetime = SQLField(
+        default_factory=datetime.utcnow
+    )
